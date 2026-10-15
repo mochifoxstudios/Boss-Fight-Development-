@@ -1,0 +1,12 @@
+{
+  "name": "boss-fight-development",
+  "private": true,
+  "description": "Boss battles for Just a Clicker Game",
+  "scripts": {
+    "test": "node tests/reality-breach.test.js",
+    "test:shots": "SHOTS=1 node tests/reality-breach.test.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
