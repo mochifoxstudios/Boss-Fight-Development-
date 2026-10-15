@@ -59,6 +59,7 @@ const SHELL = String.raw`<!doctype html>
     <button id="b-p3" type="button">Skip to phase III</button>
     <button id="b-seal" type="button">Skip to the seal</button>
     <button id="b-cancel" type="button">Cancel (quit)</button>
+    <label><input type="checkbox" id="c-sound" checked> Sound</label>
     <label><input type="checkbox" id="c-calm"> Calm mode</label>
     <label><input type="checkbox" id="c-fw"> Auto-Breach Firewall (2/s)</label>
     <label><input type="checkbox" id="c-protocol"> Breach Protocol owned</label>
@@ -86,6 +87,7 @@ const SHELL = String.raw`<!doctype html>
   const FragUpgrades = { hasBought: id => id === 'boss_loot' && _protocol };
   const Game = { update() {} };
   const Achieve = { checkAll() {} };
+  const Settings = { _prefs: { sound: true, musicVol: 1, sfxVol: 1 } };
   const Instability = { updateUI() {} };
   function updateFragmentsUI() {}
   function _toast(t) { const e = document.getElementById('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 3500); }
@@ -108,6 +110,7 @@ __BOSSES_JS__
   $('b-p3').onclick = () => AnomalyBoss._qaPhase(2);
   $('b-seal').onclick = () => AnomalyBoss._qaSeal();
   $('b-cancel').onclick = () => AnomalyBoss.cancel();
+  $('c-sound').onchange = e => { Settings._prefs.sound = e.target.checked; if (!e.target.checked && window.BossAudio) BossAudio.stop(); };
   $('c-calm').onchange = e => document.body.classList.toggle('accessibility-mode', e.target.checked);
   $('c-protocol').onchange = e => { _protocol = e.target.checked; };
   let last = performance.now();

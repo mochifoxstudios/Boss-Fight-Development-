@@ -50,7 +50,7 @@ async function visibleNonAscii(page) {
 }
 
 (async () => {
-    const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined });
+    const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ['--autoplay-policy=no-user-gesture-required'] });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
@@ -64,6 +64,8 @@ async function visibleNonAscii(page) {
     check('intro card shows the name', await page.evaluate(() => /REALITY BREACH/.test(document.querySelector('.bk-intro').textContent)));
     check('the event queue is held', await page.evaluate(() => GlobalEventQueue.isActive()));
     check('the fight starts after the intro', await waitFor(page, () => AnomalyBoss._qa().mode === 'fight'));
+    check('phase I plays its own music', await waitFor(page, () => BossAudio._qa().song === 'watch' && BossAudio._qa().state === 'running'));
+    check('and it is audible', await waitFor(page, () => BossAudio._qaLevel() > 0.02, null, 3000));
     await sleep(300);
     await shot(page, '02-phase1');
     let q = await qa(page);
@@ -100,10 +102,10 @@ async function visibleNonAscii(page) {
     check('the shell opens again', await waitFor(page, () => AnomalyBoss._qa().shell === 'open', null, 3000));
 
     /* ── a phase line is a stagger ── */
-    await page.evaluate(() => { const q = AnomalyBoss._qa(); AnomalyBoss._qaSetHp(Math.ceil(q.max * 2 / 3) + 2); });
+    await page.evaluate(() => { const q = AnomalyBoss._qa(); AnomalyBoss._qaSetHp(Math.ceil(q.max * 0.65) + 2); });
     await page.evaluate(() => AnomalyBoss.hit(30, 'firewall'));
     q = await qa(page);
-    check('a huge hit stops at the phase line', q.hits === Math.ceil(q.max * 2 / 3) && q.phase === 1, q);
+    check('a huge hit stops at the phase line', q.hits === Math.ceil(q.max * 0.65) && q.phase === 1, q);
     check('and staggers', q.mode === 'stagger');
     p = await realPoint(page, 0);
     hp0 = q.hits;
@@ -111,7 +113,8 @@ async function visibleNonAscii(page) {
     check('it is immune while staggered', (await qa(page)).hits === hp0);
 
     /* ── phase II: echoes ── */
-    check('phase II brings three echoes', await waitFor(page, () => AnomalyBoss._qa().echoes === 3, null, 3000));
+    check('phase II switches the music', (await page.evaluate(() => BossAudio._qa().song)) === 'split');
+    check('phase II brings two echoes', await waitFor(page, () => AnomalyBoss._qa().echoes === 2, null, 3000));
     await sleep(700);
     await shot(page, '05-phase2');
     check('echoes carry no id and are hidden from assistive tech',
@@ -129,18 +132,19 @@ async function visibleNonAscii(page) {
     const beamSeen = await page.evaluate(() => !!document.querySelector('.rb-beam'));
     q = await qa(page);
     check('a beam shows the echo feeding the real one', beamSeen);
-    check('striking an echo heals the real one', q.stats.echoes === 1 && q.hits === Math.min(Math.ceil(q.max * 2 / 3), hp0 + Math.round(q.max * 0.012)), { hp0, q });
+    check('striking an echo heals the real one', q.stats.echoes === 1 && q.hits === Math.min(Math.ceil(q.max * 0.65), hp0 + Math.round(q.max * 0.006)), { hp0, q });
     for (let i = 0; i < 6; i++) await page.evaluate(() => { const e = document.querySelector('.rb.echo'); const r = e.getBoundingClientRect();
         e.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); }), await sleep(1050);
     q = await qa(page);
-    check('heals never climb back over a phase line', q.phase === 1 && q.hits <= Math.ceil(q.max * 2 / 3), q);
-    check('an echo cannot be killed', q.echoes === 3 && await page.evaluate(() => [...document.querySelectorAll('.rb.echo')].every(e => getComputedStyle(e).display !== 'none')));
+    check('heals never climb back over a phase line', q.phase === 1 && q.hits <= Math.ceil(q.max * 0.65), q);
+    check('an echo cannot be killed', q.echoes === 2 && await page.evaluate(() => [...document.querySelectorAll('.rb.echo')].every(e => getComputedStyle(e).display !== 'none')));
     const pos0 = (await qa(page)).real;
     check('they shuffle', await waitFor(page, a => { const r = AnomalyBoss._qa().real; return r && (r.x !== a.x || r.y !== a.y); }, pos0, 6000));
 
     /* ── phase III: tears ── */
     await page.evaluate(() => AnomalyBoss._qaPhase(2));
     await page.evaluate(() => AnomalyBoss._qaSkipStagger());
+    check('phase III switches the music', (await page.evaluate(() => BossAudio._qa().song)) === 'rage');
     check('phase III clears the echoes', await waitFor(page, () => AnomalyBoss._qa().echoes === 0 && AnomalyBoss._qa().phase === 2));
     check('it fires tears', await waitFor(page, () => AnomalyBoss._qa().tears >= 2, null, 4000));
     await sleep(900);
@@ -155,11 +159,13 @@ async function visibleNonAscii(page) {
     check('it moves in phase III', await waitFor(page, a => { const r = AnomalyBoss._qa().real; return r && (r.x !== a.x || r.y !== a.y); }, q.real, 4000));
 
     /* ── the seal: the firewall cannot finish it ── */
-    await page.evaluate(() => AnomalyBoss._qaSetHp(1));
-    await waitFor(page, () => AnomalyBoss._qa().mode === 'fight' && AnomalyBoss._qa().shell !== 'shut', null, 4000);
-    await page.evaluate(() => AnomalyBoss.hit(5, 'firewall'));
+    /* set it to 1 HP and finish it in the same task, so a landing tear or a closing shell cannot slip in between */
+    await waitFor(page, () => { const q = AnomalyBoss._qa();
+        if (q.mode !== 'fight' || q.shell === 'shut') return false;
+        AnomalyBoss._qaSetHp(1); AnomalyBoss.hit(5, 'firewall'); return true; }, null, 6000);
     q = await qa(page);
     check('zero HP starts the seal, not a kill', q.mode === 'seal' && q.active, q.mode);
+    check('the seal drops the music to a heartbeat', (await page.evaluate(() => BossAudio._qa().song)) === 'seal');
     check('the firewall cannot seal', await page.evaluate(() => AnomalyBoss.hit(5, 'firewall') === false && AnomalyBoss._qa().mode === 'seal'));
     await sleep(300);
     await shot(page, '07-seal');
@@ -183,6 +189,7 @@ async function visibleNonAscii(page) {
     check('three locks seal it', !q.active && after.defeated === 1, { q, after });
     check('it pays fragments', after.f >= 18);
     check('the event queue is released', !after.held);
+    check('the music stops when it is sealed', (await page.evaluate(() => BossAudio._qa().song)) === null);
     await sleep(900);
     check('the result card shows a grade', await page.evaluate(() => /BREACH SEALED/.test(document.querySelector('.bk-result').textContent) && !!document.querySelector('.bk-result-grade')));
     await shot(page, '08-result');
@@ -202,6 +209,7 @@ async function visibleNonAscii(page) {
     const l0 = (await qa(page)).left;
     await sleep(700);
     check('a panel pauses the clock', (await qa(page)).left === l0);
+    check('and ducks the music', await page.evaluate(() => BossAudio._qa().ducked));
     await page.evaluate(() => document.body.classList.remove('panel-open'));
 
     /* ── quit, and the hoard comes back ── */
@@ -221,6 +229,12 @@ async function visibleNonAscii(page) {
     await page.keyboard.press('Enter');
     check('the keyboard can strike (a graze)', (await qa(page)).hits === hp0 - 1);
     await page.evaluate(() => AnomalyBoss.cancel());
+
+    /* ── sound off ── */
+    await page.evaluate(() => { Settings._prefs.sound = false; });
+    await fresh(page);
+    check('with sound off no music plays', (await page.evaluate(() => BossAudio._qa().song)) === null);
+    await page.evaluate(() => { AnomalyBoss.cancel(); Settings._prefs.sound = true; });
 
     /* ── calm mode ── */
     await page.evaluate(() => document.body.classList.add('accessibility-mode'));

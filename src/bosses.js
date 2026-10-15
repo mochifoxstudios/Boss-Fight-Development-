@@ -6,6 +6,7 @@
    Preview it without the game: node tools/viewer.js (development only).
 
      1. BossKit           the stage every boss shares (intro, bar, pops, hints, flashes, result card, SVG icons)
+        BossAudio         the bosses' soundtrack and sound effects, synthesized live (Web Audio, no audio files)
      2. AnomalyBoss       the Reality Breach (replaces the AnomalyBoss block in game.js)
      3. MemoryLeakBoss    the Memory Leak     (next: replaces the block in systems3.js)
      4. FirewallBoss      the Firewall Entity (next: replaces the block in game.js)
@@ -277,6 +278,225 @@ body.bk-shake{animation:bkShake .18s steps(2) 1}
 window.BossKit = BossKit;
 
 
+/* ── 1b. BOSSAUDIO ─────────────────────────────────────────────────────────
+   The bosses' own soundtrack and sound effects, synthesized live with Web Audio: no audio files.
+     BossAudio.song(name)      start or switch the music (a song is a set of 16-step patterns and a tempo)
+     BossAudio.stop()          end the music; what is ringing rings out
+     BossAudio.sfx(name, arg)  a one-shot; returns false when sound is off or unavailable
+     BossAudio.duck(on)        music down while the game is paused under the fight
+   While a boss song plays, the game's own music director is held (GameMusic.hold), so the two never overlap, and it
+   is released when the song ends. It obeys the player's sound switch and the Music / Effects sliders
+   (Settings._prefs.sound / musicVol / sfxVol). The engine is built on the first sound asked for, never before. */
+const BossAudio = (() => {
+    'use strict';
+    const LOOK = 0.12, TICK_MS = 25;                     // schedule this far ahead, this often
+    let ctx = null, out = null, music = null, sfxBus = null, echo = null, noise = null, crush = null, meter = null;
+    let song = null, step = 0, nextT = 0, timer = 0, ducked = false, holding = false;
+
+    function _on() { try { return typeof Settings === 'undefined' || !Settings._prefs || Settings._prefs.sound !== false; } catch (e) { return true; } }
+    function _vol(k) { try { const v = Settings._prefs[k]; return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : 1; } catch (e) { return 1; } }
+    const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+
+    function _ensure() {
+        if (!_on()) return null;
+        if (!ctx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            try { ctx = new AC(); } catch (e) { return null; }
+            const comp = ctx.createDynamicsCompressor();
+            comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+            out = ctx.createGain(); out.gain.value = 0.9;
+            music = ctx.createGain(); sfxBus = ctx.createGain();
+            music.connect(out); sfxBus.connect(out); out.connect(comp); comp.connect(ctx.destination);
+            meter = ctx.createAnalyser(); meter.fftSize = 2048; comp.connect(meter);   // QA: is anything actually sounding
+            /* a dotted-eighth echo for the lead */
+            echo = ctx.createDelay(1); const fb = ctx.createGain(), wet = ctx.createGain(), tone = ctx.createBiquadFilter();
+            fb.gain.value = 0.38; wet.gain.value = 0.3; tone.type = 'lowpass'; tone.frequency.value = 2600;
+            echo.connect(tone); tone.connect(fb); fb.connect(echo); tone.connect(wet); wet.connect(music);
+            noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+            const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            crush = ctx.createWaveShaper(); const c = new Float32Array(1024);
+            for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; c[i] = Math.tanh(x * 4) * 0.8; } crush.curve = c;
+        }
+        if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
+        _levels();
+        return ctx;
+    }
+    function _levels() {
+        if (!ctx) return;
+        music.gain.setTargetAtTime(0.3 * _vol('musicVol') * (ducked ? 0.3 : 1), ctx.currentTime, 0.08);
+        sfxBus.gain.setTargetAtTime(0.55 * _vol('sfxVol'), ctx.currentTime, 0.02);
+    }
+
+    /* ── voices: each is a few nodes, built at time t and left to stop by itself ── */
+    function _env(g, t, a, peak, d, end) {
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a);
+        g.gain.exponentialRampToValueAtTime(end || 0.0001, t + a + d);
+    }
+    function _osc(type, f, t, dur, peak, dest, a, f2) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+        _env(g, t, a || 0.004, peak, dur); o.connect(g); g.connect(dest);
+        o.start(t); o.stop(t + (a || 0.004) + dur + 0.05);
+        return o;
+    }
+    function _noise(t, dur, peak, dest, type, f, f2, q) {
+        const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+        s.buffer = noise; s.loop = true; fl.type = type || 'highpass'; fl.frequency.setValueAtTime(f || 6000, t);
+        if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur); fl.Q.value = q || 0.8;
+        _env(g, t, 0.002, peak, dur); s.connect(fl); fl.connect(g); g.connect(dest);
+        s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+    }
+    const kick = (t, v) => { _osc('sine', 160, t, 0.28, 0.9 * v, music, 0.002, 42); _noise(t, 0.02, 0.15 * v, music, 'highpass', 3000); };
+    const snare = (t, v) => { _noise(t, 0.16, 0.35 * v, music, 'bandpass', 1900, 1200, 0.9); _osc('triangle', 190, t, 0.08, 0.25 * v, music, 0.002, 140); };
+    const hat = (t, v, open) => _noise(t, open ? 0.16 : 0.035, 0.12 * v, music, 'highpass', 8000);
+    function bass(t, m, dur, v, dirty) {
+        const o = ctx.createOscillator(), o2 = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+        o.type = 'sawtooth'; o2.type = 'square'; o.frequency.value = hz(m); o2.frequency.value = hz(m - 12);
+        f.type = 'lowpass'; f.Q.value = 6; f.frequency.setValueAtTime(dirty ? 1800 : 1100, t); f.frequency.exponentialRampToValueAtTime(140, t + dur);
+        _env(g, t, 0.004, 0.32 * v, dur);
+        o.connect(f); o2.connect(f); f.connect(g);
+        if (dirty) { g.connect(crush); crush.connect(music); } else g.connect(music);
+        o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+    }
+    function lead(t, m, dur, v) {
+        const o = ctx.createOscillator(), o2 = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+        o.type = 'square'; o2.type = 'sawtooth'; o.frequency.value = hz(m); o2.frequency.value = hz(m) * 1.006;
+        f.type = 'lowpass'; f.frequency.value = 2400; _env(g, t, 0.006, 0.11 * v, dur);
+        o.connect(f); o2.connect(f); f.connect(g); g.connect(music); g.connect(echo);
+        o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+    }
+    function pad(t, notes, dur, v) {
+        const f = ctx.createBiquadFilter(), g = ctx.createGain();
+        f.type = 'lowpass'; f.frequency.value = 900; f.connect(g); g.connect(music);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.06 * v, t + dur * 0.3);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        notes.forEach(m => [-7, 7].forEach(c => { const o = ctx.createOscillator(); o.type = 'sawtooth';
+            o.frequency.value = hz(m); o.detune.value = c; o.connect(f); o.start(t); o.stop(t + dur + 0.05); }));
+    }
+    function glitch(t, v) {   // a sample-and-hold stutter: the breach tearing at the music
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'square';
+        for (let i = 0; i < 5; i++) o.frequency.setValueAtTime(400 + Math.random() * 2400, t + i * 0.018);
+        _env(g, t, 0.002, 0.07 * v, 0.1); o.connect(g); g.connect(music); o.start(t); o.stop(t + 0.15);
+    }
+
+    /* ── the songs: D phrygian, 4 bars of 16 steps; R is each bar's root, C its chord ── */
+    const D = 38;   // D2
+    const R = [0, 1, 0, -2], C = [[50, 53, 57], [51, 55, 58], [50, 53, 57], [48, 51, 55]];
+    const ARP = [0, 3, 7, 12, 7, 3, 10, 7];
+    const SONGS = {
+        /* phase I: it is watching. Sparse, a slow pulse, the eye motif */
+        watch: { bpm: 112, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15;
+            if (i === 0 || i === 8 || (b === 3 && i === 11)) kick(t, 1);
+            if (i % 4 === 2) hat(t, 0.6);
+            if ([0, 3, 6, 8, 11, 14].includes(i)) bass(t, D + R[b] + (i === 6 ? 1 : i === 14 ? -2 : 0), d * 2, 0.9);
+            if (i === 0) pad(t, C[b], d * 16, 1);
+            if ((b === 0 || b === 2) && [0, 3, 6].includes(i)) lead(t, [69, 70, 69][[0, 3, 6].indexOf(i)], d * 2.5, 0.9);
+            if (b === 1 && i === 10) lead(t, 65, d * 5, 0.8);
+        } },
+        /* phase II: it splits. Driving, a stuttering arpeggio, glitches */
+        split: { bpm: 124, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15;
+            if (i % 4 === 0) kick(t, 1);
+            if (i === 4 || i === 12) snare(t, 0.9);
+            hat(t, i % 2 ? 0.5 : 0.9, i === 14);
+            if (i % 2 === 0) bass(t, D + R[b] + (i === 10 ? 12 : 0), d * 1.6, 0.9);
+            if (i === 0) pad(t, C[b], d * 16, 0.8);
+            lead(t, 62 + R[b] + ARP[i % 8], d * 0.9, i % 4 === 0 ? 0.8 : 0.5);
+            if (Math.random() < 0.12) glitch(t + d * 0.5, 1);
+        } },
+        /* phase III: enraged. Four on the floor, a distorted bass, the lead an octave up */
+        rage: { bpm: 140, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15;
+            if (i % 4 === 0 || (b === 3 && i === 14)) kick(t, 1.1);
+            if (i === 4 || i === 12 || (b === 3 && i >= 13)) snare(t, 1);
+            hat(t, i % 2 ? 0.6 : 1, i % 4 === 2);
+            bass(t, D + R[b] + (i % 4 === 3 ? 12 : 0), d * 0.9, 1, true);
+            if (i === 0) pad(t, C[b].map(m => m + 12), d * 16, 1);
+            if (i % 2 === 0) lead(t, 74 + R[b] + ARP[(i >> 1) % 8], d * 1.2, 0.7);
+            if (Math.random() < 0.08) glitch(t, 1.2);
+        } },
+        /* the seal: the music drops away to a heartbeat under a drone */
+        seal: { bpm: 140, play(s, t, d) {
+            const i = s & 15;
+            if (i === 0 || i === 3) kick(t, i ? 0.7 : 1);
+            if (i === 0 && (s & 31) === 0) { pad(t, [26, 38, 45], d * 32, 1.4); }
+            if (i === 8) hat(t, 0.3, true);
+        } },
+    };
+
+    function _pump() {
+        if (!song || !ctx) return;
+        const d = 60 / song.bpm / 4;
+        while (nextT < ctx.currentTime + LOOK) {
+            try { song.play(step, nextT, d); } catch (e) {}
+            nextT += d; step++;
+        }
+    }
+    function _hold(on) {
+        if (on === holding) return;
+        holding = on;
+        try { if (window.GameMusic) on ? GameMusic.hold('bossAudio') : GameMusic.release('bossAudio'); } catch (e) {}
+    }
+
+    function songTo(name) {
+        const S = SONGS[name]; if (!S || !_ensure()) return false;
+        _hold(true);
+        if (!song) { step = 0; nextT = ctx.currentTime + 0.05; }
+        else step = (step + 15) & ~15;   // a new song starts on the next bar line, so the change lands on the beat
+        song = S;
+        if (!timer) timer = setInterval(_pump, TICK_MS);
+        _pump();
+        return true;
+    }
+    function stop() {
+        song = null;
+        if (timer) { clearInterval(timer); timer = 0; }
+        _hold(false);
+    }
+    function duck(on) { if (on !== ducked) { ducked = on; _levels(); } }
+
+    /* ── effects ── */
+    const FX = {
+        siren(t) { for (let i = 0; i < 4; i++) _osc('square', i % 2 ? 660 : 880, t + i * 0.26, 0.24, 0.12, sfxBus, 0.01);
+                   _osc('sine', 70, t, 1.1, 0.5, sfxBus, 0.02, 30); },
+        hit(t) { _osc('triangle', 480 + Math.random() * 120, t, 0.06, 0.3, sfxBus, 0.002, 220); _noise(t, 0.03, 0.12, sfxBus, 'highpass', 4000); },
+        crit(t) { FX.hit(t); [1320, 1980, 2640].forEach((f, i) => _osc('sine', f, t, 0.45 - i * 0.1, 0.18 / (i + 1), sfxBus, 0.002)); },
+        reflect(t) { const g = ctx.createGain(); g.connect(sfxBus); _env(g, t, 0.003, 0.4, 0.2);
+                     [88, 93].forEach(f => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(crush); o.start(t); o.stop(t + 0.25); });
+                     _osc('square', 140, t, 0.18, 0.12, sfxBus, 0.002, 70); },
+        echo(t) { _noise(t, 0.32, 0.25, sfxBus, 'bandpass', 3200, 380, 3); _osc('sine', 300, t, 0.3, 0.2, sfxBus, 0.01, 120); },
+        tell(t, dur) { _osc('sine', 420, t, dur || 0.6, 0.12, sfxBus, 0.02, 980); },
+        shut(t) { _osc('sine', 130, t, 0.18, 0.5, sfxBus, 0.002, 55); _noise(t, 0.04, 0.2, sfxBus, 'lowpass', 1200); },
+        immune(t) { _osc('square', 220, t, 0.05, 0.06, sfxBus, 0.002, 200); },
+        tearLaunch(t) { _osc('square', 1300, t, 0.14, 0.08, sfxBus, 0.002, 260); },
+        tearShot(t) { _noise(t, 0.05, 0.25, sfxBus, 'highpass', 2500); _osc('sine', 980, t, 0.07, 0.2, sfxBus, 0.002, 1600); },
+        tearLand(t) { _noise(t, 0.28, 0.35, sfxBus, 'lowpass', 700, 120); _osc('sawtooth', 75, t, 0.22, 0.25, sfxBus, 0.002, 40); },
+        jump(t) { _osc('sine', 260, t, 0.16, 0.12, sfxBus, 0.005, 1300); },
+        phase(t) { _osc('sine', 90, t, 1.1, 0.8, sfxBus, 0.003, 28); _noise(t, 0.9, 0.3, sfxBus, 'lowpass', 6000, 200);
+                   [146.8, 155.6, 220].forEach(f => _osc('triangle', f, t, 1.4, 0.1, sfxBus, 0.005)); },
+        sealTick(t) { _osc('sine', 2200, t, 0.03, 0.12, sfxBus, 0.001); },
+        lock(t, n) { const b = 880 * Math.pow(2, (n || 0) * 4 / 12); [1, 2.01, 3].forEach((k, i) => _osc('sine', b * k, t, 0.9 - i * 0.25, 0.22 / (i + 1), sfxBus, 0.002)); },
+        sealMiss(t) { [146.8, 155.6, 207.7].forEach(f => _osc('sawtooth', f, t, 0.5, 0.1, sfxBus, 0.003, f * 0.8)); _noise(t, 0.3, 0.3, sfxBus, 'lowpass', 900); },
+        win(t) { [62, 66, 69, 74, 78].forEach((m, i) => { _osc('sine', hz(m), t + i * 0.09, 1.2, 0.2, sfxBus, 0.003); _osc('triangle', hz(m + 12), t + i * 0.09, 0.5, 0.06, sfxBus, 0.003); });
+                 _osc('sine', 73.4, t, 1.6, 0.4, sfxBus, 0.01); },
+        fail(t) { _osc('sawtooth', 294, t, 1.3, 0.16, sfxBus, 0.01, 73); _osc('sawtooth', 311, t, 1.3, 0.12, sfxBus, 0.01, 78); _noise(t, 1.2, 0.2, sfxBus, 'lowpass', 2000, 100); },
+    };
+    function sfx(name, arg) {
+        const f = FX[name]; if (!f || !_ensure()) return false;
+        try { f(ctx.currentTime + 0.005, arg); } catch (e) { return false; }
+        return true;
+    }
+
+    return { song: songTo, stop, sfx, duck, enabled: () => _on() && !!(window.AudioContext || window.webkitAudioContext),
+             _qaLevel: () => { if (!meter) return 0; const a = new Float32Array(meter.fftSize); meter.getFloatTimeDomainData(a);
+                               let m = 0; for (const v of a) m = Math.max(m, Math.abs(v)); return m; },
+             _qa: () => ({ song: song ? Object.keys(SONGS).find(k => SONGS[k] === song) : null, holding, ducked, state: ctx ? ctx.state : 'none', step }) };
+})();
+window.BossAudio = BossAudio;
+
+
 /* ── 2. THE REALITY BREACH ──────────────────────────────────────────────────
 
    Replaces the AnomalyBoss block in game.js (see README: Integration). Same global name and public surface, so the
@@ -290,9 +510,9 @@ window.BossKit = BossKit;
                    somewhere else on the rim; it drifts in phase II and races in phase III. Anywhere else is a graze.
                  - IT EATS. It takes 10 / 20 / 30% of your income while it is up, and holds it.
      Phase I     - It sits still and teaches the shell.
-     Phase II    - IT SPLITS. Three echoes. The echoes flicker now and then and their shards orbit the other way; the
+     Phase II    - IT SPLITS. Two echoes. The echoes flicker now and then and their shards orbit the other way; the
                    real breach is steady and its eye follows your cursor. An echo cannot be killed: strike one and a beam shows it feeding the
-                   real one (+2). They shuffle every 4 s, and each landing spot is marked a moment before.
+                   real one (+2). They shuffle every 5.5 s, and each landing spot is marked a moment before.
      Phase III   - ENRAGED. It blinks around the screen (each jump is marked first) and fires tears at your energy
                    counter. A tear that lands steals 6 s of income into its hoard and heals it. Shoot them down.
      The seal    - At zero it does not die. It collapses, and a marker sweeps a ring with three lit arcs. Press as
@@ -316,7 +536,7 @@ const AnomalyBoss = (() => {
     const FEED = [0.10, 0.20, 0.30];                        // share of income it eats, by phase
     const SHELL = [                                          // seconds open / warning flicker / shut, by phase
         { open: 3.4, tell: 0.75, shut: 1.5 },
-        { open: 2.6, tell: 0.60, shut: 1.6 },
+        { open: 3.2, tell: 0.60, shut: 1.3 },   // phase II gives more time open: finding the real one is the work
         { open: 2.0, tell: 0.50, shut: 1.7 },
     ];
     const FIRST_OPEN_S = 4.5;                               // the very first window is generous
@@ -324,7 +544,9 @@ const AnomalyBoss = (() => {
     const WEAK_DRIFT = [0, 34, 70];                         // how fast it slides round the rim, degrees a second, by phase
     const STAGGER_S = 1.1;
     const REFLECT_HEAL = 0.012, REFLECT_STEAL_S = 2;        // a hit on a shut shell: heals 1.2% of max
-    const ECHOES = 3, ECHO_HEAL = 0.012, ECHO_COOL_S = 1.0, SHUFFLE_S = 4.2;   // phase II (one echo heals at most once a second)
+    const ECHOES = 2, ECHO_HEAL = 0.006, ECHO_COOL_S = 1.0, SHUFFLE_S = 5.5;   // phase II (one echo heals at most once a second)
+    const FLICK_GAP = [0.35, 0.8], FLICK_S = 0.2;           // an echo flickers every 0.35-0.8 s, for 0.2 s
+    const LINE_II = 0.65, LINE_III = 0.40;                  // the phase lines, as shares of HP: phase II is the shortest stretch
     const MOVE_S = 2.2, TELL_S = 0.45;                      // phase III jumps, and the mark before any jump
     const TEAR_EVERY_S = 3.2, TEAR_FLIGHT_S = 3.0, TEAR_HEAL = 0.015, TEAR_STEAL_S = 6;
     const SEAL_LOCKS = 3, SEAL_WINDOW_S = 7, SEAL_REV_S = 0.85, SEAL_SPEEDUP = 1.18, SEAL_FAIL_HP = 0.15;
@@ -346,8 +568,12 @@ const AnomalyBoss = (() => {
     const _fmt = n => (typeof format === 'function' ? format(n) : String(Math.round(n)));
     const _pay = (a, b, c) => (typeof _birdPay === 'function' ? _birdPay(a, b, c) : window._qaBirdPay ? window._qaBirdPay(a, b, c) : a);
     const _income = () => Math.max(0, +S()._realEPS || +S().eps || 0);
-    const _sound = id => { try { if (window.GameSound) GameSound.play(id); } catch (e) {} };
-    const _click = () => { try { if (window.Sounds && Sounds.click) Sounds.click(); } catch (e) {} };
+    /* a sound: the boss's own (BossAudio), or the game's nearest one when Web Audio is unavailable */
+    const _fx = (name, fallback, arg) => {
+        try { if (window.BossAudio && BossAudio.sfx(name, arg)) return; } catch (e) {}
+        try { if (fallback === 'click') { if (window.Sounds && Sounds.click) Sounds.click(); } else if (fallback && window.GameSound) GameSound.play(fallback); } catch (e) {}
+    };
+    const _music = name => { try { if (window.BossAudio) name ? BossAudio.song(name) : BossAudio.stop(); } catch (e) {} };
     const _ticker = (t, c, ms) => { try { if (window.Ticker) Ticker.show(t, c, ms); } catch (e) {} };
     const _calm = () => !!(K() && K().calm());
     function _paused() {
@@ -361,7 +587,7 @@ const AnomalyBoss = (() => {
 .rb{position:fixed;left:0;top:0;z-index:9500;width:var(--rb-size);height:var(--rb-size);margin:calc(var(--rb-size) / -2) 0 0 calc(var(--rb-size) / -2);
   --rb-size:clamp(130px,24vmin,240px);--rb-col:${COL};color:var(--rb-col);pointer-events:none;outline:none;will-change:transform;}
 .rb,.rb-tear,.rb-seal{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
-.rb.echo.flick .rb-body{opacity:.35;transform:translateX(4px) skewX(-8deg)}
+.rb.echo.flick .rb-body{opacity:.2;transform:translateX(5px) skewX(-10deg)}
 .rb.calm.echo.flick .rb-body{transform:none}
 .rb-body{position:absolute;inset:0;transition:opacity .12s linear,transform .25s ease;}
 .rb.blink .rb-body{opacity:0;transform:scale(.6)}
@@ -571,11 +797,11 @@ const AnomalyBoss = (() => {
         _active = true; _ready = false; _mode = 'intro';
         _max = HP_MIN + Math.floor(Math.random() * HP_SPREAD);
         _hp = _max; _phase = 0; _left = LIFE_S; _t = 0;
-        _stats = { hits: 0, crits: 0, reflects: 0, echoes: 0, shot: 0, landed: 0, sealMiss: 0, stolen: 0 };
+        _stats = { hits: 0, crits: 0, reflects: 0, echoes: 0, shot: 0, landed: 0, sealMiss: 0, stolen: 0, at: [] };   // at: fight seconds each phase began
         _hints = {};
         S()._breachHoard = 0;
         _ticker('REALITY BREACH: a massive anomaly has appeared', '#ff2255', 8000);
-        _sound('sfx:breach');
+        _fx('siren', 'sfx:breach');
         K().intro({ name: 'REALITY BREACH', sub: 'IT EATS WHAT YOU MAKE. IT KEEPS WHAT IT EATS.', col: COL })
             .then(() => { if (_active) _appear(); });
         return true;
@@ -584,7 +810,7 @@ const AnomalyBoss = (() => {
     function _appear() {
         _real = _body(true);
         _place(_real, window.innerWidth / 2, Math.max(90 + _size() / 2, window.innerHeight * 0.45));
-        K().bar({ name: 'REALITY BREACH', col: COL, marks: [2 / 3, 1 / 3] });
+        K().bar({ name: 'REALITY BREACH', col: COL, marks: [LINE_II, LINE_III] });
         K().phase('PHASE I');
         _mode = 'fight'; _ready = true;
         _shell = 'open'; _shellUntil = FIRST_OPEN_S;
@@ -594,6 +820,7 @@ const AnomalyBoss = (() => {
         _lastTs = performance.now();
         _refresh();
         _hintAt('weak', 'HIT THE GLOWING WEAK POINT FOR TRIPLE DAMAGE', 'target', 3200);
+        _music('watch');
         _raf = requestAnimationFrame(_frame);
     }
 
@@ -608,7 +835,9 @@ const AnomalyBoss = (() => {
         _raf = requestAnimationFrame(_frame);
         const dt = Math.min(0.1, (now - _lastTs) / 1000);
         _lastTs = now;
-        if (!_ready || _paused()) return;   // a panel, a cutscene, the dampener, the fake crash: everything holds
+        const paused = _paused();
+        try { if (window.BossAudio) BossAudio.duck(paused); } catch (e) {}
+        if (!_ready || paused) return;   // a panel, a cutscene, the dampener, the fake crash: everything holds
         _t += dt;
 
         if (_mode === 'fight' || _mode === 'stagger') {
@@ -632,7 +861,7 @@ const AnomalyBoss = (() => {
         _stepTears(dt);
         if (_mode === 'seal') _stepSeal(dt);
         if (_phase === 1) _echoes.forEach(e => {   // echoes flicker now and then; the real one is steady (a tell that needs no cursor)
-            if (_t >= (e.flickAt || 0)) { e.el.classList.add('flick'); e.flickEnd = _t + 0.16; e.flickAt = _t + 0.8 + Math.random() * 1.4; }
+            if (_t >= (e.flickAt || 0)) { e.el.classList.add('flick'); e.flickEnd = _t + FLICK_S; e.flickAt = _t + FLICK_GAP[0] + Math.random() * (FLICK_GAP[1] - FLICK_GAP[0]); }
             else if (e.flickEnd && _t >= e.flickEnd) { e.el.classList.remove('flick'); e.flickEnd = 0; }
         });
         if (_mode === 'fight' && WEAK_DRIFT[_phase]) _bodies().forEach(b => { b.wa = (b.wa + b.wdir * WEAK_DRIFT[_phase] * dt + 360) % 360; _aimWeak(b); });
@@ -645,9 +874,11 @@ const AnomalyBoss = (() => {
         const c = SHELL[_phase];
         if (_shell === 'open') {
             _shell = 'tell'; _shellUntil = _t + c.tell;
+            _fx('tell', null, c.tell);
             _hintAt('tell', 'IT IS CLOSING. HOLD FIRE.', 'shield', 2200);
         } else if (_shell === 'tell') {
             _shell = 'shut'; _shellUntil = _t + c.shut;
+            _fx('shut');
         } else {
             _shell = 'open'; _shellUntil = _t + c.open * (0.85 + Math.random() * 0.3);   // never quite the same rhythm
         }
@@ -693,7 +924,7 @@ const AnomalyBoss = (() => {
     /* ── striking ───────────────────────────────────────────────────────── */
     function _strike(b, x, y, src, touch) {
         if (!_active || !_ready) return false;
-        if (_mode === 'stagger') { if (src !== 'firewall') K().pop(x, y, 'IMMUNE', 'info', '#ffffff'); return false; }
+        if (_mode === 'stagger') { if (src !== 'firewall') { K().pop(x, y, 'IMMUNE', 'info', '#ffffff'); _fx('immune'); } return false; }
         if (_mode !== 'fight' || !b.alive) return false;
 
         if (!b.real) {                                  // an echo: it cannot be hurt, it feeds the real one
@@ -704,6 +935,7 @@ const AnomalyBoss = (() => {
             K().pop(x, y, 'ECHO', 'info', '#ffffff');
             _heal(_amt(ECHO_HEAL), _real.x, _real.y - 30, 'HEALED +' + _amt(ECHO_HEAL));
             _stats.echoes++;
+            _fx('echo');
             K().shake(3);
             _hintAt('echo', 'ECHOES CANNOT DIE. THE REAL ONE NEVER FLICKERS.', 'eye', 3200);
             return false;
@@ -714,6 +946,7 @@ const AnomalyBoss = (() => {
             const steal = Math.min(Math.max(0, S().energy || 0), _income() * REFLECT_STEAL_S);
             if (steal > 0) { S().energy -= steal; S()._breachHoard = (S()._breachHoard || 0) + steal; _stats.stolen += steal; }
             _heal(_amt(REFLECT_HEAL), x, y, 'REFLECTED  +' + _amt(REFLECT_HEAL));
+            _fx('reflect');
             K().flash(COL, 0.22); K().shake(2);
             _hintAt('shut', 'THE SHELL IS SHUT. EVERY HIT FEEDS IT.', 'shield', 2400);
             return false;
@@ -733,16 +966,18 @@ const AnomalyBoss = (() => {
         } else {
             K().pop(x, y - 20, '-1', 'hit', _col());
         }
-        _click();
+        _fx(crit ? 'crit' : 'hit', 'click');
         const cls = crit ? 'crit' : 'hit';
         b.el.classList.remove('hit', 'crit'); void b.el.offsetWidth; b.el.classList.add(cls);
         K().shake(crit ? 4 : 2);
         return true;
     }
 
+    const _line = share => Math.ceil(_max * share);
+
     /* damage never crosses a phase line in one go: the line is a stagger */
     function _damage(n, src) {
-        const floor = _phase === 0 ? Math.ceil(_max * 2 / 3) : _phase === 1 ? Math.ceil(_max / 3) : 0;
+        const floor = _phase === 0 ? _line(LINE_II) : _phase === 1 ? _line(LINE_III) : 0;
         _hp = Math.max(floor, _hp - n);
         if (_hp <= floor) {
             if (_phase < 2) _enterPhase(_phase + 1);
@@ -762,7 +997,7 @@ const AnomalyBoss = (() => {
 
     const _amt = share => Math.max(1, Math.round(_max * share));
     /* a heal never climbs back over a phase line already crossed: a phase, once won, stays won */
-    const _ceil = () => _phase === 0 ? _max : _phase === 1 ? Math.ceil(_max * 2 / 3) : Math.ceil(_max / 3);
+    const _ceil = () => _phase === 0 ? _max : _phase === 1 ? _line(LINE_II) : _line(LINE_III);
 
     function _heal(n, x, y, text) {
         _hp = Math.min(_ceil(), _hp + n);
@@ -781,12 +1016,14 @@ const AnomalyBoss = (() => {
 
     function _enterPhase(p) {
         _phase = p;
+        _stats.at[p] = Math.round(LIFE_S - _left);
         const col = _col();
         _bodies().forEach(b => { b.el.style.setProperty('--rb-col', col); b.el.classList.toggle('p3', p === 2); });
         K().colour(col);
         K().phase(p === 1 ? 'PHASE II  FIND THE REAL ONE' : 'PHASE III  ENRAGED');
         K().flash(col, 0.4); K().shake(7);
-        _sound('sfx:breach');
+        _fx('phase', 'sfx:breach');
+        _music(p === 1 ? 'split' : 'rage');
         _ticker(p === 1 ? 'The breach splits. Only one of them is real.' : 'The breach is enraged. It is coming for your energy.', col, 4000);
         _stagger(() => {
             _shellUntil = _t + SHELL[p].open;
@@ -813,6 +1050,7 @@ const AnomalyBoss = (() => {
         const all = _bodies(), spots = [], minD = _size() * 1.25;
         all.forEach(() => spots.push(_spot(spots, minD)));
         spots.forEach(p => _ghost(p.x, p.y));
+        _fx('jump');
         const order = spots.slice().sort(() => Math.random() - 0.5);
         all.forEach(b => b.el.classList.add('blink'));
         setTimeout(() => {
@@ -828,6 +1066,7 @@ const AnomalyBoss = (() => {
         _moveAt = _t + MOVE_S * (0.8 + Math.random() * 0.4) + TELL_S;
         const p = _spot([{ x: _real.x, y: _real.y }], _size() * 1.4);
         _ghost(p.x, p.y);
+        _fx('jump');
         _real.el.classList.add('blink');
         setTimeout(() => {
             if (!_active || _mode === 'seal' || !_real) return;
@@ -850,6 +1089,7 @@ const AnomalyBoss = (() => {
         const n = 2;
         _tearAt = _t + TEAR_EVERY_S;
         for (let i = 0; i < n; i++) _tear(i, n);
+        _fx('tearLaunch');
         _hintAt('tear', 'TEARS STEAL YOUR ENERGY. SHOOT THEM DOWN.', 'energy', 2800);
     }
 
@@ -897,7 +1137,7 @@ const AnomalyBoss = (() => {
         t.el.classList.add('pop');
         setTimeout(() => t.el.remove(), 260);
         K().pop(t.x, t.y, 'SHOT', 'info', COL_RAGE);
-        _click();
+        _fx('tearShot', 'click');
     }
 
     function _land(t, tg) {
@@ -910,6 +1150,7 @@ const AnomalyBoss = (() => {
         K().heal();
         K().pop(tg.x, tg.y - 24, 'STOLEN  -' + _fmt(steal) + ' E', 'reflect');
         K().flash(COL_RAGE, 0.18); K().shake(3);
+        _fx('tearLand');
         if (tg.el) { tg.el.classList.remove('rb-drained'); void tg.el.offsetWidth; tg.el.classList.add('rb-drained'); }
     }
 
@@ -918,6 +1159,7 @@ const AnomalyBoss = (() => {
     /* ── the seal ───────────────────────────────────────────────────────── */
     function _beginSeal() {
         _mode = 'seal';
+        if (_stats.at[3] == null) _stats.at[3] = Math.round(LIFE_S - _left);
         _clearTears(); _clearEchoes();
         const W = window.innerWidth, H = window.innerHeight;
         const cx = W / 2, cy = Math.max(200, H * 0.5);
@@ -928,7 +1170,8 @@ const AnomalyBoss = (() => {
         K().colour(COL_SEAL);
         K().phase('SEAL IT');
         K().flash('#ffffff', 0.5); K().shake(8);
-        _sound('sfx:breach');
+        _fx('phase', 'sfx:breach');
+        _music('seal');
 
         const arcs = [], base = Math.random() * 360, w = _calm() ? 54 : 40;
         for (let i = 0; i < SEAL_LOCKS; i++) arcs.push({ a: (base + i * 120 + (Math.random() - 0.5) * 50) % 360, w });
@@ -975,6 +1218,9 @@ const AnomalyBoss = (() => {
         const s = _seal; if (!s) return;
         s.ang = (s.ang + s.dir * s.speed * dt + 360) % 360;
         s.mark.setAttribute('transform', 'rotate(' + s.ang.toFixed(1) + ')');
+        const lit = s.arcs[s.order[s.locks]], inArc = Math.abs(((s.ang - lit.a) % 360 + 540) % 360 - 180) <= lit.w / 2;
+        if (inArc && !s.inArc) _fx('sealTick');   // a tick as the marker enters the lit arc: the timing, by ear
+        s.inArc = inArc;
         const left = Math.max(0, s.until - _t) / SEAL_WINDOW_S;
         s.timeRing.style.strokeDashoffset = (s.circ * (1 - left)).toFixed(1);
         if (_t >= s.until) _sealFail('TOO SLOW');
@@ -986,7 +1232,7 @@ const AnomalyBoss = (() => {
         const diff = Math.abs(((s.ang - a.a) % 360 + 540) % 360 - 180);
         if (diff <= a.w / 2 + 3) {
             s.locks++;
-            _click();
+            _fx('lock', 'click', s.locks - 1);
             K().pop(s.cx, s.cy - 190, 'LOCKED ' + s.locks + '/' + SEAL_LOCKS, 'crit', COL_SEAL);
             K().flash(COL_SEAL, 0.25); K().shake(4);
             if (s.locks >= SEAL_LOCKS) { _defeat(); return; }
@@ -1010,7 +1256,8 @@ const AnomalyBoss = (() => {
         K().heal();
         K().pop(_real.x, _real.y - 60, why + '  IT TORE FREE', 'reflect');
         K().flash(COL, 0.45); K().shake(8);
-        _sound('sfx:breach');
+        _fx('sealMiss', 'sfx:breach');
+        _music('rage');
         _mode = 'fight';
         _stagger(() => { _moveAt = _t + 0.3; _tearAt = _t + 0.8; _shellUntil = _t + SHELL[2].open; });
     }
@@ -1025,6 +1272,8 @@ const AnomalyBoss = (() => {
         _clearTears(); _clearEchoes();
         if (_seal) { _seal.el.remove(); _seal = null; }
         if (window.GlobalEventQueue) GlobalEventQueue.unhold('anomalyBoss');
+        _music(null);
+        try { if (window.BossAudio) BossAudio.duck(false); } catch (e) {}
     }
 
     function _grade() {
@@ -1061,7 +1310,7 @@ const AnomalyBoss = (() => {
         K().end();
         if (typeof updateFragmentsUI === 'function') updateFragmentsUI();
         if (typeof Game !== 'undefined' && Game.update) Game.update();
-        _sound('stinger:eventWin');
+        _fx('win', 'stinger:eventWin');
         const mins = eps > 0 ? bounty / eps / 60 : 0;
         setTimeout(() => K().result({ title: 'BREACH SEALED', col: COL_WIN, grade, rows: [
             ['energy', 'Returned what it ate', '+' + _fmt(back) + ' E'],
@@ -1088,7 +1337,7 @@ const AnomalyBoss = (() => {
         K().end();
         st.instability = Math.min(100, (st.instability || 0) + 15);
         try { if (typeof Instability !== 'undefined' && Instability.updateUI) Instability.updateUI(); } catch (e) {}
-        _sound('stinger:eventFail');
+        _fx('fail', 'stinger:eventFail');
         K().result({ title: 'THE BREACH ESCAPED', col: COL, rows: [['energy', 'It kept', _fmt(kept) + ' E'], ['instability', 'Instability', '+15%']] });
         _ticker('REALITY BREACH escaped. Instability +15', '#ff3355', 4000);
         _scheduleNext();
@@ -1153,7 +1402,7 @@ const AnomalyBoss = (() => {
                       FEED: FEED.slice(), HIT: HIT.slice(), BOUNTY: BOUNTY.slice(), FIRST_MS, GAP_MS, GAP_SPREAD_MS, ROLL, LIFE_S }),
         _qaSetLeft: s => { _left = s; },
         _qaSetHp: v => { _hp = Math.max(1, Math.min(_max, v)); },
-        _qaPhase: p => { while (_active && _phase < p && _mode !== 'seal') { _hp = _phase === 0 ? Math.ceil(_max * 2 / 3) : Math.ceil(_max / 3); _enterPhase(_phase + 1); } },
+        _qaPhase: p => { while (_active && _phase < p && _mode !== 'seal') { _hp = _phase === 0 ? _line(LINE_II) : _line(LINE_III); _enterPhase(_phase + 1); } },
         _qaSeal: () => { if (_active && _mode !== 'seal') { _phase = 2; _hp = 0; _beginSeal(); } },
         _qaSkipStagger: () => { _staggerUntil = _t; },
         _qaNext: ms => { _nextBoss = Date.now() + ms; },
