@@ -290,8 +290,8 @@ window.BossKit = BossKit;
                    somewhere else on the rim; it drifts in phase II and races in phase III. Anywhere else is a graze.
                  - IT EATS. It takes 10 / 20 / 30% of your income while it is up, and holds it.
      Phase I     - It sits still and teaches the shell.
-     Phase II    - IT SPLITS. Three echoes. Only the real breach watches your cursor; the echoes stare at nothing and
-                   their shards orbit the other way. An echo cannot be killed: strike one and a beam shows it feeding the
+     Phase II    - IT SPLITS. Three echoes. The echoes flicker now and then and their shards orbit the other way; the
+                   real breach is steady and its eye follows your cursor. An echo cannot be killed: strike one and a beam shows it feeding the
                    real one (+2). They shuffle every 4 s, and each landing spot is marked a moment before.
      Phase III   - ENRAGED. It blinks around the screen (each jump is marked first) and fires tears at your energy
                    counter. A tear that lands steals 6 s of income into its hoard and heals it. Shoot them down.
@@ -312,7 +312,7 @@ const AnomalyBoss = (() => {
     const COL = '#ff2d6a', COL_II = '#c23bff', COL_RAGE = '#ff5a1e', COL_SEAL = '#5cf2ff', COL_WIN = '#44ffaa';
     const MIN_ENERGY = 1e8;
     const FIRST_MS = 30 * 60000, GAP_MS = 35 * 60000, GAP_SPREAD_MS = 20 * 60000, ROLL = 0.02, ROLL_EVERY_MS = 15000;
-    const HP_MIN = 200, HP_SPREAD = 40, LIFE_S = 90;          // a brisk clicker needs ~40 s; heals below are shares of this
+    const HP_MIN = 150, HP_SPREAD = 30, LIFE_S = 105;         // tuned for taps as well as clicks (tests/balance.js); heals are shares of this
     const FEED = [0.10, 0.20, 0.30];                        // share of income it eats, by phase
     const SHELL = [                                          // seconds open / warning flicker / shut, by phase
         { open: 3.4, tell: 0.75, shut: 1.5 },
@@ -320,13 +320,13 @@ const AnomalyBoss = (() => {
         { open: 2.0, tell: 0.50, shut: 1.7 },
     ];
     const FIRST_OPEN_S = 4.5;                               // the very first window is generous
-    const WEAK_R = 74, WEAK_HIT = 21, WEAK_DMG = 3;         // the weak point: its radius on the rim, its hit radius (art units), its damage
+    const WEAK_R = 74, WEAK_HIT = 24, WEAK_HIT_TOUCH = 36, WEAK_DMG = 3;   // the weak point: radius on the rim, hit radius for a mouse / a finger (art units), damage
     const WEAK_DRIFT = [0, 34, 70];                         // how fast it slides round the rim, degrees a second, by phase
     const STAGGER_S = 1.1;
     const REFLECT_HEAL = 0.012, REFLECT_STEAL_S = 2;        // a hit on a shut shell: heals 1.2% of max
     const ECHOES = 3, ECHO_HEAL = 0.012, ECHO_COOL_S = 1.0, SHUFFLE_S = 4.2;   // phase II (one echo heals at most once a second)
-    const MOVE_S = 1.7, TELL_S = 0.45;                      // phase III jumps, and the mark before any jump
-    const TEAR_EVERY_S = 3.2, TEAR_FLIGHT_S = 3.0, TEAR_HEAL = 0.02, TEAR_STEAL_S = 6;
+    const MOVE_S = 2.2, TELL_S = 0.45;                      // phase III jumps, and the mark before any jump
+    const TEAR_EVERY_S = 3.2, TEAR_FLIGHT_S = 3.0, TEAR_HEAL = 0.015, TEAR_STEAL_S = 6;
     const SEAL_LOCKS = 3, SEAL_WINDOW_S = 7, SEAL_REV_S = 0.85, SEAL_SPEEDUP = 1.18, SEAL_FAIL_HP = 0.15;
     const HIT = [500, 0.005, 2], BOUNTY = [50000, 0.40, 900], CLEAN_MULT = 1.5;
 
@@ -360,7 +360,9 @@ const AnomalyBoss = (() => {
     const CSS = `
 .rb{position:fixed;left:0;top:0;z-index:9500;width:var(--rb-size);height:var(--rb-size);margin:calc(var(--rb-size) / -2) 0 0 calc(var(--rb-size) / -2);
   --rb-size:clamp(130px,24vmin,240px);--rb-col:${COL};color:var(--rb-col);pointer-events:none;outline:none;will-change:transform;}
-.rb.jump{transition:none}
+.rb,.rb-tear,.rb-seal{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+.rb.echo.flick .rb-body{opacity:.35;transform:translateX(4px) skewX(-8deg)}
+.rb.calm.echo.flick .rb-body{transform:none}
 .rb-body{position:absolute;inset:0;transition:opacity .12s linear,transform .25s ease;}
 .rb.blink .rb-body{opacity:0;transform:scale(.6)}
 .rb-art{width:100%;height:100%;overflow:visible;display:block;filter:drop-shadow(0 0 14px color-mix(in srgb,var(--rb-col) 70%,transparent));}
@@ -504,11 +506,15 @@ const AnomalyBoss = (() => {
         } else {
             el.setAttribute('aria-hidden', 'true');
         }
-        el.addEventListener('click', e => {
-            e.stopPropagation();
+        /* strike on the press, not the click: on a touchscreen the click comes only when the finger lifts, and not at
+           all if the target moved meanwhile or the browser took two quick taps for a zoom */
+        el.addEventListener('pointerdown', e => {
+            if (e.button > 0) return;
+            e.preventDefault(); e.stopPropagation();
             if (_mode === 'seal') return;
-            _strike(b, e.clientX, e.clientY, 'click');
+            _strike(b, e.clientX, e.clientY, 'click', e.pointerType === 'touch' || e.pointerType === 'pen');
         });
+        el.addEventListener('click', e => e.stopPropagation());   // the game's own click handlers never see a strike
         document.body.appendChild(el);
         return b;
     }
@@ -518,9 +524,9 @@ const AnomalyBoss = (() => {
         const r = b.el.getBoundingClientRect(), k = 220 / Math.max(1, r.width);
         return { x: (x - (r.left + r.width / 2)) * k, y: (y - (r.top + r.height / 2)) * k };
     }
-    function _onWeak(b, x, y) {
+    function _onWeak(b, x, y, touch) {
         const p = _local(b, x, y), a = b.wa * Math.PI / 180;
-        return Math.hypot(p.x - Math.sin(a) * WEAK_R, p.y + Math.cos(a) * WEAK_R) <= WEAK_HIT;
+        return Math.hypot(p.x - Math.sin(a) * WEAK_R, p.y + Math.cos(a) * WEAK_R) <= (touch ? WEAK_HIT_TOUCH : WEAK_HIT);
     }
     function _place(b, x, y) {
         b.x = x; b.y = y;
@@ -625,6 +631,10 @@ const AnomalyBoss = (() => {
         }
         _stepTears(dt);
         if (_mode === 'seal') _stepSeal(dt);
+        if (_phase === 1) _echoes.forEach(e => {   // echoes flicker now and then; the real one is steady (a tell that needs no cursor)
+            if (_t >= (e.flickAt || 0)) { e.el.classList.add('flick'); e.flickEnd = _t + 0.16; e.flickAt = _t + 0.8 + Math.random() * 1.4; }
+            else if (e.flickEnd && _t >= e.flickEnd) { e.el.classList.remove('flick'); e.flickEnd = 0; }
+        });
         if (_mode === 'fight' && WEAK_DRIFT[_phase]) _bodies().forEach(b => { b.wa = (b.wa + b.wdir * WEAK_DRIFT[_phase] * dt + 360) % 360; _aimWeak(b); });
         _stepEyes();
         _refresh();
@@ -681,7 +691,7 @@ const AnomalyBoss = (() => {
     }
 
     /* ── striking ───────────────────────────────────────────────────────── */
-    function _strike(b, x, y, src) {
+    function _strike(b, x, y, src, touch) {
         if (!_active || !_ready) return false;
         if (_mode === 'stagger') { if (src !== 'firewall') K().pop(x, y, 'IMMUNE', 'info', '#ffffff'); return false; }
         if (_mode !== 'fight' || !b.alive) return false;
@@ -695,7 +705,7 @@ const AnomalyBoss = (() => {
             _heal(_amt(ECHO_HEAL), _real.x, _real.y - 30, 'HEALED +' + _amt(ECHO_HEAL));
             _stats.echoes++;
             K().shake(3);
-            _hintAt('echo', 'ECHOES CANNOT DIE. THEY HEAL THE ONE WATCHING YOU.', 'eye', 3200);
+            _hintAt('echo', 'ECHOES CANNOT DIE. THE REAL ONE NEVER FLICKERS.', 'eye', 3200);
             return false;
         }
         if (_shell === 'shut') {                        // the shell is closed
@@ -709,7 +719,7 @@ const AnomalyBoss = (() => {
             return false;
         }
         let dmg = 1, crit = false;
-        if (src === 'click' && _onWeak(b, x, y)) {
+        if (src === 'click' && _onWeak(b, x, y, touch)) {
             crit = true; dmg = WEAK_DMG;
             b.wa = (b.wa + 120 + Math.random() * 120) % 360; b.wdir = -b.wdir; _aimWeak(b);   // found it: it moves
         }
@@ -780,7 +790,7 @@ const AnomalyBoss = (() => {
         _ticker(p === 1 ? 'The breach splits. Only one of them is real.' : 'The breach is enraged. It is coming for your energy.', col, 4000);
         _stagger(() => {
             _shellUntil = _t + SHELL[p].open;
-            if (p === 1) { _spawnEchoes(); _shuffleAt = _t; _hintAt('split', 'ONLY THE REAL ONE WATCHES YOUR CURSOR. ECHOES HEAL IT.', 'eye', 4200); }
+            if (p === 1) { _spawnEchoes(); _shuffleAt = _t; _hintAt('split', 'ECHOES FLICKER AND HEAL IT. HIT THE STEADY ONE.', 'eye', 4200); }
             if (p === 2) { _clearEchoes(); _moveAt = _t + 0.6; _tearAt = _t + 1.2; }
         });
     }
@@ -837,7 +847,7 @@ const AnomalyBoss = (() => {
     }
 
     function _volley() {
-        const n = _hp / _max < 0.15 ? 3 : 2;
+        const n = 2;
         _tearAt = _t + TEAR_EVERY_S;
         for (let i = 0; i < n; i++) _tear(i, n);
         _hintAt('tear', 'TEARS STEAL YOUR ENERGY. SHOOT THEM DOWN.', 'energy', 2800);
@@ -856,7 +866,8 @@ const AnomalyBoss = (() => {
         const bend = (i - (n - 1) / 2) * 220 + (Math.random() - 0.5) * 120;   // they fan out, so one sweep cannot get them all
         const t = { el, x0, y0, cx: mx + (-(tg.y - y0) / len) * bend, cy: my + ((tg.x - x0) / len) * bend,
                     t0: _t + i * 0.18, flight: TEAR_FLIGHT_S * (0.9 + Math.random() * 0.2), dead: false, x: x0, y: y0 };
-        el.addEventListener('click', e => { e.stopPropagation(); _shoot(t); });
+        el.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); _shoot(t); });
+        el.addEventListener('click', e => { e.stopPropagation(); _shoot(t); });   // the keyboard (Enter on a focused tear)
         el.style.transform = 'translate(' + Math.round(x0) + 'px,' + Math.round(y0) + 'px)';
         document.body.appendChild(el);
         _tears.push(t);

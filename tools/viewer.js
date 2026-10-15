@@ -29,7 +29,7 @@ const SHELL = String.raw`<!doctype html>
   #main-btn { position:fixed; left:50%; top:50%; width:120px; height:120px; margin:-60px; border-radius:50%;
     border:2px solid var(--line); background:#140a1e; color:var(--dim); font:inherit; letter-spacing:3px; cursor:pointer; }
   #panel { position:fixed; left:calc(12px + env(safe-area-inset-left, 0px)); top:76px; width:220px; padding:12px; background:var(--panel); border:1px solid var(--line);
-    font-size:11px; z-index:20000; }
+    font-size:11px; z-index:9000; }   /* under the bosses: a fight is never blocked by this panel */
   #panel #b-fold { display:flex; justify-content:space-between; margin:0 0 4px; padding:0; border:0; background:none; font-size:11px; letter-spacing:3px; color:var(--accent); font-weight:700; }
   #panel #b-fold span { color:var(--dim); font-weight:400; }
   #panel.folded #panel-body { display:none; }
@@ -99,7 +99,10 @@ __BOSSES_JS__
 <script>
   const $ = id => document.getElementById(id);
   $('main-btn').onclick = () => { state.energy += state._realEPS * 0.05; };
-  $('b-fold').onclick = () => { const f = $('panel').classList.toggle('folded'); $('b-fold').setAttribute('aria-expanded', String(!f)); $('b-fold').querySelector('span').textContent = f ? 'SHOW' : 'HIDE'; };
+  const fold = f => { $('panel').classList.toggle('folded', f); $('b-fold').setAttribute('aria-expanded', String(!f)); $('b-fold').querySelector('span').textContent = f ? 'SHOW' : 'HIDE'; };
+  $('b-fold').onclick = () => fold(!$('panel').classList.contains('folded'));
+  /* the panel folds itself away when a fight starts or skips ahead, so it never sits where the boss goes */
+  ['b-spawn', 'b-p2', 'b-p3', 'b-seal'].forEach(id => $(id).addEventListener('click', () => fold(true)));
   $('b-spawn').onclick = () => { if (!AnomalyBoss.spawn()) _toast('Cannot spawn now (already up?)'); };
   $('b-p2').onclick = () => AnomalyBoss._qaPhase(1);
   $('b-p3').onclick = () => AnomalyBoss._qaPhase(2);

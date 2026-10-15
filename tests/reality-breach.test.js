@@ -67,7 +67,7 @@ async function visibleNonAscii(page) {
     await sleep(300);
     await shot(page, '02-phase1');
     let q = await qa(page);
-    check('HP is 200-239', q.max >= 200 && q.max <= 239, q);
+    check('HP is 150-179', q.max >= 150 && q.max <= 179, q);
     check('one body, with the stable id', await page.evaluate(() => document.querySelectorAll('.rb').length === 1 && !!document.getElementById('anomaly-boss')));
 
     /* ── the weak point and the graze ── */
@@ -125,13 +125,13 @@ async function visibleNonAscii(page) {
     hp0 = (await qa(page)).hits;
     await page.evaluate(() => { const e = [...document.querySelectorAll('.rb.echo')].find(e => !e.classList.contains('blink'));
         const r = e.getBoundingClientRect();
-        e.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); });
+        e.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); });
     const beamSeen = await page.evaluate(() => !!document.querySelector('.rb-beam'));
     q = await qa(page);
     check('a beam shows the echo feeding the real one', beamSeen);
     check('striking an echo heals the real one', q.stats.echoes === 1 && q.hits === Math.min(Math.ceil(q.max * 2 / 3), hp0 + Math.round(q.max * 0.012)), { hp0, q });
     for (let i = 0; i < 6; i++) await page.evaluate(() => { const e = document.querySelector('.rb.echo'); const r = e.getBoundingClientRect();
-        AnomalyBoss._qa(); e.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); }), await sleep(1050);
+        e.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); }), await sleep(1050);
     q = await qa(page);
     check('heals never climb back over a phase line', q.phase === 1 && q.hits <= Math.ceil(q.max * 2 / 3), q);
     check('an echo cannot be killed', q.echoes === 3 && await page.evaluate(() => [...document.querySelectorAll('.rb.echo')].every(e => getComputedStyle(e).display !== 'none')));
