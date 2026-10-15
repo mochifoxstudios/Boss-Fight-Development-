@@ -1,11 +1,11 @@
-/* Plays the Reality Breach in the sandbox, in a real Chromium, and checks every mechanic.
+/* Plays the Reality Breach in the viewer (tools/viewer.js), in a real Chromium, and checks every mechanic.
    Run: node tests/reality-breach.test.js   (SHOTS=1 also writes screenshots to tests/shots/) */
 'use strict';
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
 
-const PAGE = 'file://' + path.resolve(__dirname, '../sandbox/index.html');
+const { build } = require('../tools/viewer');
 const SHOTS = !!process.env.SHOTS;
 const results = [];
 function check(name, ok, info) { results.push({ name, ok: !!ok }); console.log((ok ? 'PASS ' : 'FAIL ') + name + (ok || info === undefined ? '' : '  ' + JSON.stringify(info))); }
@@ -49,7 +49,7 @@ async function visibleNonAscii(page) {
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(PAGE);
+    await page.setContent(build());
 
     /* ── arrival ── */
     await page.evaluate(() => AnomalyBoss.spawn());
@@ -113,10 +113,11 @@ async function visibleNonAscii(page) {
     const eyes = await page.evaluate(() => [...document.querySelectorAll('.rb')].map(e => ({ real: e.id === 'anomaly-boss', t: e.querySelector('.rb-pupil-g').getAttribute('transform') })));
     check('the real one watches the cursor (pupil points up-left)', /translate\(-\d/.test(eyes.find(e => e.real).t), eyes);
     await waitFor(page, () => AnomalyBoss._qa().shell === 'open' && AnomalyBoss._qa().mode === 'fight', null, 4000);
-    const echoPt = await page.evaluate(() => { const e = [...document.querySelectorAll('.rb.echo')].find(e => !e.classList.contains('blink'));
-        const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    /* echoes shuffle every few seconds: strike one in the same task the position is read, so a shuffle cannot land between */
     hp0 = (await qa(page)).hits;
-    await page.mouse.click(echoPt.x, echoPt.y);
+    await page.evaluate(() => { const e = [...document.querySelectorAll('.rb.echo')].find(e => !e.classList.contains('blink'));
+        const r = e.getBoundingClientRect();
+        e.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); });
     q = await qa(page);
     check('striking an echo heals the real one', q.stats.echoes === 1 && q.hits === Math.min(q.max, hp0 + 2), { hp0, q });
     const pos0 = (await qa(page)).real;
@@ -129,8 +130,8 @@ async function visibleNonAscii(page) {
     check('it fires tears', await waitFor(page, () => AnomalyBoss._qa().tears >= 2, null, 4000));
     await sleep(900);
     await shot(page, '06-phase3');
-    const tearPt = await page.evaluate(() => { const r = document.querySelector('.rb-tear').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-    await page.mouse.click(tearPt.x, tearPt.y);
+    /* a tear moves every frame, so click the element itself rather than where it was a moment ago */
+    await page.evaluate(() => document.querySelector('.rb-tear').click());
     check('a tear can be shot down', (await qa(page)).stats.shot >= 1);
     const e0 = await page.evaluate(() => state.energy);
     check('a tear that lands steals and heals', await waitFor(page, () => AnomalyBoss._qa().stats.landed >= 1, null, 5000));

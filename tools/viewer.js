@@ -1,23 +1,40 @@
-<!doctype html>
+/* tools/viewer.js — a preview page for src/bosses.js. Development only: nothing here ships.
+
+   The game's index.html is never edited. This builds a self-contained page instead: a stand-in for the bits of the
+   game a boss touches (state, format, _birdPay, an energy counter, the event queue), bosses.js inlined, and a panel
+   to spawn each boss and skip to any phase. The tests load it, and so does the review artifact.
+
+     node tools/viewer.js [out.html]       writes the page (default: preview.html, git-ignored)
+     node tools/viewer.js out.html --artifact   the same page, shaped for publishing as a review artifact
+     require('./tools/viewer').build()     returns it as a string */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const SHELL = String.raw`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reality Breach Sandbox</title>
+<title>Boss Viewer</title>
 <style>
-  :root { --bg:#07030c; --panel:#120a1a; --line:#2a1838; --text:#d8d0e4; --dim:#7a6c8c; --accent:#44ffaa; }
+  :root { color-scheme:dark; --bg:#07030c; --panel:#120a1a; --line:#2a1838; --text:#d8d0e4; --dim:#7a6c8c; --accent:#44ffaa; }
   * { box-sizing:border-box; }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
     font-family:'Courier New', ui-monospace, monospace; overflow:hidden; }
   body { background:radial-gradient(ellipse at 50% 40%, #1a0b26 0%, var(--bg) 70%); }
-  #energy-display { position:fixed; left:50%; bottom:26px; transform:translateX(-50%); text-align:center; }
+  #energy-display { position:fixed; left:50%; bottom:calc(26px + env(safe-area-inset-bottom, 0px)); transform:translateX(-50%); text-align:center; }
   #energy-display .v { font-size:28px; font-weight:900; letter-spacing:2px; color:#fff; font-variant-numeric:tabular-nums; }
   #energy-display .l { font-size:10px; letter-spacing:4px; color:var(--dim); }
   #main-btn { position:fixed; left:50%; top:50%; width:120px; height:120px; margin:-60px; border-radius:50%;
     border:2px solid var(--line); background:#140a1e; color:var(--dim); font:inherit; letter-spacing:3px; cursor:pointer; }
-  #panel { position:fixed; left:12px; top:76px; width:220px; padding:12px; background:var(--panel); border:1px solid var(--line);
+  #panel { position:fixed; left:calc(12px + env(safe-area-inset-left, 0px)); top:76px; width:220px; padding:12px; background:var(--panel); border:1px solid var(--line);
     font-size:11px; z-index:20000; }
-  #panel h1 { font-size:11px; letter-spacing:3px; margin:0 0 8px; color:var(--accent); }
+  #panel #b-fold { display:flex; justify-content:space-between; margin:0 0 4px; padding:0; border:0; background:none; font-size:11px; letter-spacing:3px; color:var(--accent); font-weight:700; }
+  #panel #b-fold span { color:var(--dim); font-weight:400; }
+  #panel.folded #panel-body { display:none; }
+  #panel.folded #b-fold { margin:0; }
+  #panel h2 { font-size:10px; letter-spacing:2px; margin:8px 0 4px; color:var(--dim); font-weight:400; }
   #panel button { display:block; width:100%; margin:4px 0; padding:6px; background:#1d1029; color:var(--text);
     border:1px solid var(--line); font:inherit; cursor:pointer; text-align:left; }
   #panel button:hover { border-color:var(--accent); }
@@ -34,7 +51,9 @@
   <div id="energy-display"><div class="v" id="energy-v">0</div><div class="l">ENERGY</div></div>
   <div id="toast"></div>
   <div id="panel">
-    <h1>BREACH SANDBOX</h1>
+    <button id="b-fold" type="button" aria-expanded="true">BOSS VIEWER <span>HIDE</span></button>
+    <div id="panel-body">
+    <h2>REALITY BREACH</h2>
     <button id="b-spawn" type="button">Spawn the breach</button>
     <button id="b-p2" type="button">Skip to phase II</button>
     <button id="b-p3" type="button">Skip to phase III</button>
@@ -44,6 +63,7 @@
     <label><input type="checkbox" id="c-fw"> Auto-Breach Firewall (2/s)</label>
     <label><input type="checkbox" id="c-protocol"> Breach Protocol owned</label>
     <div id="stats"></div>
+    </div>
   </div>
 
 <!-- stand-ins for the game.js script-scope bindings the boss uses -->
@@ -73,11 +93,13 @@
   window.Ticker = { show: (t) => _toast(t) };
   window.GlobalEventQueue = { _h: null, hold(id) { if (this._h) return false; this._h = id; return true; }, unhold(id) { if (this._h === id) this._h = null; }, isActive() { return !!this._h; } };
 </script>
-<script src="../src/boss-kit.js"></script>
-<script src="../src/reality-breach.js"></script>
+<script>
+__BOSSES_JS__
+</script>
 <script>
   const $ = id => document.getElementById(id);
   $('main-btn').onclick = () => { state.energy += state._realEPS * 0.05; };
+  $('b-fold').onclick = () => { const f = $('panel').classList.toggle('folded'); $('b-fold').setAttribute('aria-expanded', String(!f)); $('b-fold').querySelector('span').textContent = f ? 'SHOW' : 'HIDE'; };
   $('b-spawn').onclick = () => { if (!AnomalyBoss.spawn()) _toast('Cannot spawn now (already up?)'); };
   $('b-p2').onclick = () => AnomalyBoss._qaPhase(1);
   $('b-p3').onclick = () => AnomalyBoss._qaPhase(2);
@@ -103,3 +125,26 @@
 </script>
 </body>
 </html>
+`;
+
+function build(opt) {
+    const js = fs.readFileSync(path.join(__dirname, '..', 'src', 'bosses.js'), 'utf8');
+    let html = SHELL.replace('__BOSSES_JS__', () => js.replace(/<\/script/gi, '<\\/script'));
+    if (opt && opt.artifact) {
+        /* a review artifact: the publisher supplies the document skeleton and the charset and viewport metas */
+        html = html.replace(/<!doctype html>\s*<html[^>]*>\s*<head>\s*/i, '')
+                   .replace(/<meta charset="utf-8">\s*<meta name="viewport"[^>]*>\s*/i, '')
+                   .replace(/<\/head>\s*<body>\s*/i, '')
+                   .replace(/\s*<\/body>\s*<\/html>\s*$/i, '\n')
+                   .replace('<title>Boss Viewer</title>', '<title>Clicker Game Bosses</title>');
+    }
+    return html;
+}
+
+if (require.main === module) {
+    const args = process.argv.slice(2), artifact = args.includes('--artifact');
+    const out = path.resolve(args.find(a => a !== '--artifact') || path.join(__dirname, '..', 'preview.html'));
+    fs.writeFileSync(out, build({ artifact }));
+    console.log('wrote ' + out);
+}
+module.exports = { build };

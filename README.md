@@ -2,14 +2,25 @@
 
 Boss battles for **Just a Clicker Game**. `reference/` holds copies of the shipped game files, for reference only.
 
-## Reality Breach (rebuilt)
+## The bosses: `src/bosses.js`
+
+All three bosses live in one file, `src/bosses.js`, and that file is the whole deliverable. It creates every element and style it needs at runtime. It doesn't edit `index.html` and doesn't depend on any element or class in it, so it can't collide with ongoing work on that file.
+
+| Section | Status |
+|---|---|
+| 1. `BossKit`: the shared stage (intro card, boss bar with damage trail, pop-ups, hints, flashes, result card, SVG icons) | done |
+| 2. `AnomalyBoss`: the Reality Breach | done |
+| 3. `MemoryLeakBoss`: the Memory Leak | next |
+| 4. `FirewallBoss`: the Firewall Entity | next |
+
+Development tools (none of these ship):
 
 | File | What it is |
 |---|---|
-| `src/boss-kit.js` | The shared boss stage: intro card, boss bar with damage trail, pop-ups, hints, flashes, result card, SVG icon set. Self-styled, so it doesn't depend on `game.css`. |
-| `src/reality-breach.js` | The boss. Drop-in replacement for `AnomalyBoss` in `game.js`, with the same global name and public API. |
-| `sandbox/index.html` | Plays the fight on its own, with the game's globals stubbed. Has buttons to skip to each phase. |
-| `tests/reality-breach.test.js` | Plays every mechanic in Chromium (45 checks). |
+| `tools/viewer.js` | Builds a self-contained preview page: a stand-in for the parts of the game a boss touches, `bosses.js` inlined, and a panel to spawn the boss and skip to any phase. |
+| `tests/reality-breach.test.js` | Plays every Reality Breach mechanic in Chromium (45 checks), using the viewer page. |
+
+## Reality Breach
 
 ### The fight
 
@@ -26,13 +37,8 @@ Boss battles for **Just a Clicker Game**. `reference/` holds copies of the shipp
 
 ### Integration into the game
 
-1. In `game.js`, delete the old block. It starts at the banner `ANOMALY BOSS — the Reality Breach` (reference line 23745) and ends at `window.AnomalyBoss = AnomalyBoss;` (reference line 24011). Keep `BossStage` above it, because the Memory Leak still uses it.
-2. In `index.html`, load the two files right after `game.js`:
-   ```html
-   <script src="game.js"></script>
-   <script src="boss-kit.js"></script>
-   <script src="reality-breach.js"></script>
-   ```
+1. Remove the old block from `game.js`. It starts at the banner `ANOMALY BOSS — the Reality Breach` (reference line 23745) and ends at `window.AnomalyBoss = AnomalyBoss;` (reference line 24011). Keep `BossStage` above it, because the old Memory Leak still uses it until that boss moves into `bosses.js`.
+2. Load `bosses.js` once, after `game.js`. That one script tag is the only thing the game's `index.html` needs. Nothing else in it is edited or relied on.
 3. Nothing else needs to change. Everything that touches the old boss keeps working:
    - `music.js` reads `AnomalyBoss._active`.
    - The Auto-Breach Firewall calls `hit(n, 'firewall')` and uses `_autoHitAccum`.
@@ -48,9 +54,9 @@ Sounds used: `sfx:breach`, `stinger:eventWin`, `stinger:eventFail` and `Sounds.c
 
 ### Running
 
-Open `sandbox/index.html` in a browser. To run the tests:
-
 ```sh
-npm install        # or reuse a global playwright: NODE_PATH=$(npm root -g)
-npm test           # npm run test:shots also writes screenshots to tests/shots/
+node tools/viewer.js   # writes preview.html (git-ignored); open it in a browser
+node tools/viewer.js out.html --artifact   # the same page, shaped for publishing as a review artifact
+npm install            # or reuse a global playwright: NODE_PATH=$(npm root -g)
+npm test               # npm run test:shots also writes screenshots to tests/shots/
 ```
