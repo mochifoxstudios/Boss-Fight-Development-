@@ -27,6 +27,12 @@ async function realPoint(page, share = 0) {
     return page.evaluate(s => { const r = document.getElementById('anomaly-boss').getBoundingClientRect();
         return { x: r.left + r.width / 2 + r.width / 2 * s, y: r.top + r.height / 2 }; }, share);
 }
+/* the screen point of the real breach's weak point (rotate(wa) translate(0,-74) in a 220-wide viewBox) */
+async function weakPoint(page) {
+    return page.evaluate(() => { const r = document.getElementById('anomaly-boss').getBoundingClientRect(), k = r.width / 220;
+        const a = AnomalyBoss._qa().real.weak * Math.PI / 180;
+        return { x: r.left + r.width / 2 + Math.sin(a) * 74 * k, y: r.top + r.height / 2 - Math.cos(a) * 74 * k }; });
+}
 async function fresh(page) {
     await page.evaluate(() => { AnomalyBoss.cancel(); state.energy = 5e9; state.fragments = 0; state.instability = 20; state._breachHoard = 0; });
     await page.evaluate(() => AnomalyBoss.spawn());
@@ -61,20 +67,22 @@ async function visibleNonAscii(page) {
     await sleep(300);
     await shot(page, '02-phase1');
     let q = await qa(page);
-    check('HP is 54-63', q.max >= 54 && q.max <= 63, q);
+    check('HP is 200-239', q.max >= 200 && q.max <= 239, q);
     check('one body, with the stable id', await page.evaluate(() => document.querySelectorAll('.rb').length === 1 && !!document.getElementById('anomaly-boss')));
 
-    /* ── core and graze ── */
-    let p = await realPoint(page, 0);
+    /* ── the weak point and the graze ── */
+    let p = await weakPoint(page);
     let hp0 = (await qa(page)).hits;
+    const wa0 = (await qa(page)).real.weak;
     await page.mouse.click(p.x, p.y);
-    check('a core hit is critical (2 damage)', (await qa(page)).hits === hp0 - 2, { hp0, now: (await qa(page)).hits });
-    p = await realPoint(page, 0.75);
+    check('a weak point hit is critical (3 damage)', (await qa(page)).hits === hp0 - 3, { hp0, now: (await qa(page)).hits });
+    check('the weak point moves once found', Math.abs((await qa(page)).real.weak - wa0) >= 100);
+    p = await realPoint(page, 0);
     hp0 = (await qa(page)).hits;
     await page.mouse.click(p.x, p.y);
-    check('a body hit grazes (1 damage)', (await qa(page)).hits === hp0 - 1);
+    check('the centre is only a graze (1 damage)', (await qa(page)).hits === hp0 - 1);
     const st = await page.evaluate(() => AnomalyBoss._qa().stats);
-    check('clicks pay income', st.hits === 2 && st.crits === 1, st);
+    check('hits are counted', st.hits === 2 && st.crits === 1, st);
 
     /* ── the shell ── */
     check('the shell warns before it shuts', await waitFor(page, () => AnomalyBoss._qa().shell === 'tell', null, 6000));
@@ -83,10 +91,10 @@ async function visibleNonAscii(page) {
     await shot(page, '04-shut');
     hp0 = (await qa(page)).hits;
     const hoard0 = (await qa(page)).hoard;
-    p = await realPoint(page, 0);
+    p = await realPoint(page, 0.3);
     await page.mouse.click(p.x, p.y);
     q = await qa(page);
-    check('a hit on a shut shell is reflected and heals it', q.hits === Math.min(q.max, hp0 + 1) && q.stats.reflects === 1, q);
+    check('a hit on a shut shell is reflected and heals it', q.hits === Math.min(q.max, hp0 + Math.round(q.max * 0.012)) && q.stats.reflects === 1, q);
     check('a reflected hit steals into the hoard', q.hoard > hoard0);
     check('the firewall cannot hit a shut shell', await page.evaluate(() => AnomalyBoss.hit(3, 'firewall') === false));
     check('the shell opens again', await waitFor(page, () => AnomalyBoss._qa().shell === 'open', null, 3000));
@@ -118,8 +126,15 @@ async function visibleNonAscii(page) {
     await page.evaluate(() => { const e = [...document.querySelectorAll('.rb.echo')].find(e => !e.classList.contains('blink'));
         const r = e.getBoundingClientRect();
         e.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); });
+    const beamSeen = await page.evaluate(() => !!document.querySelector('.rb-beam'));
     q = await qa(page);
-    check('striking an echo heals the real one', q.stats.echoes === 1 && q.hits === Math.min(q.max, hp0 + 2), { hp0, q });
+    check('a beam shows the echo feeding the real one', beamSeen);
+    check('striking an echo heals the real one', q.stats.echoes === 1 && q.hits === Math.min(Math.ceil(q.max * 2 / 3), hp0 + Math.round(q.max * 0.012)), { hp0, q });
+    for (let i = 0; i < 6; i++) await page.evaluate(() => { const e = document.querySelector('.rb.echo'); const r = e.getBoundingClientRect();
+        AnomalyBoss._qa(); e.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); }), await sleep(1050);
+    q = await qa(page);
+    check('heals never climb back over a phase line', q.phase === 1 && q.hits <= Math.ceil(q.max * 2 / 3), q);
+    check('an echo cannot be killed', q.echoes === 3 && await page.evaluate(() => [...document.querySelectorAll('.rb.echo')].every(e => getComputedStyle(e).display !== 'none')));
     const pos0 = (await qa(page)).real;
     check('they shuffle', await waitFor(page, a => { const r = AnomalyBoss._qa().real; return r && (r.x !== a.x || r.y !== a.y); }, pos0, 6000));
 

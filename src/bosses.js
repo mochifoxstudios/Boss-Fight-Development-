@@ -286,12 +286,13 @@ window.BossKit = BossKit;
    THE FIGHT. A target you can spam is not a boss. This one has to be read.
      Everywhere  - THE SHELL. Six plates open and close on a rhythm. They flicker white just before they shut.
                    A hit on a shut shell is REFLECTED: it heals the breach and it steals from you.
-                 - THE CORE. A hit inside the inner ring is CRITICAL (double damage). The rest of the body is a graze.
+                 - THE WEAK POINT. A small glowing mark on the rim. A hit on it is CRITICAL (triple damage) and sends it
+                   somewhere else on the rim; it drifts in phase II and races in phase III. Anywhere else is a graze.
                  - IT EATS. It takes 10 / 20 / 30% of your income while it is up, and holds it.
      Phase I     - It sits still and teaches the shell.
      Phase II    - IT SPLITS. Three echoes. Only the real breach watches your cursor; the echoes stare at nothing and
-                   their shards orbit the other way. Strike an echo and the real one heals. They shuffle every 4 s,
-                   and each landing spot is marked a moment before.
+                   their shards orbit the other way. An echo cannot be killed: strike one and a beam shows it feeding the
+                   real one (+2). They shuffle every 4 s, and each landing spot is marked a moment before.
      Phase III   - ENRAGED. It blinks around the screen (each jump is marked first) and fires tears at your energy
                    counter. A tear that lands steals 6 s of income into its hoard and heals it. Shoot them down.
      The seal    - At zero it does not die. It collapses, and a marker sweeps a ring with three lit arcs. Press as
@@ -311,7 +312,7 @@ const AnomalyBoss = (() => {
     const COL = '#ff2d6a', COL_II = '#c23bff', COL_RAGE = '#ff5a1e', COL_SEAL = '#5cf2ff', COL_WIN = '#44ffaa';
     const MIN_ENERGY = 1e8;
     const FIRST_MS = 30 * 60000, GAP_MS = 35 * 60000, GAP_SPREAD_MS = 20 * 60000, ROLL = 0.02, ROLL_EVERY_MS = 15000;
-    const HP_MIN = 54, HP_SPREAD = 10, LIFE_S = 80;
+    const HP_MIN = 200, HP_SPREAD = 40, LIFE_S = 90;          // a brisk clicker needs ~40 s; heals below are shares of this
     const FEED = [0.10, 0.20, 0.30];                        // share of income it eats, by phase
     const SHELL = [                                          // seconds open / warning flicker / shut, by phase
         { open: 3.4, tell: 0.75, shut: 1.5 },
@@ -319,12 +320,13 @@ const AnomalyBoss = (() => {
         { open: 2.0, tell: 0.50, shut: 1.7 },
     ];
     const FIRST_OPEN_S = 4.5;                               // the very first window is generous
-    const CORE = 0.34;                                      // the core ring (34 of 110) as a share of the body, a touch generous
+    const WEAK_R = 74, WEAK_HIT = 21, WEAK_DMG = 3;         // the weak point: its radius on the rim, its hit radius (art units), its damage
+    const WEAK_DRIFT = [0, 34, 70];                         // how fast it slides round the rim, degrees a second, by phase
     const STAGGER_S = 1.1;
-    const REFLECT_HEAL = 1, REFLECT_STEAL_S = 2;            // a hit on a shut shell
-    const ECHOES = 3, ECHO_HEAL = 2, SHUFFLE_S = 4.2;       // phase II
+    const REFLECT_HEAL = 0.012, REFLECT_STEAL_S = 2;        // a hit on a shut shell: heals 1.2% of max
+    const ECHOES = 3, ECHO_HEAL = 0.012, ECHO_COOL_S = 1.0, SHUFFLE_S = 4.2;   // phase II (one echo heals at most once a second)
     const MOVE_S = 1.7, TELL_S = 0.45;                      // phase III jumps, and the mark before any jump
-    const TEAR_EVERY_S = 3.2, TEAR_FLIGHT_S = 3.0, TEAR_HEAL = 2, TEAR_STEAL_S = 6;
+    const TEAR_EVERY_S = 3.2, TEAR_FLIGHT_S = 3.0, TEAR_HEAL = 0.02, TEAR_STEAL_S = 6;
     const SEAL_LOCKS = 3, SEAL_WINDOW_S = 7, SEAL_REV_S = 0.85, SEAL_SPEEDUP = 1.18, SEAL_FAIL_HP = 0.15;
     const HIT = [500, 0.005, 2], BOUNTY = [50000, 0.40, 900], CLEAN_MULT = 1.5;
 
@@ -367,7 +369,15 @@ const AnomalyBoss = (() => {
 .rb-jag{fill:none;stroke:var(--rb-col);stroke-width:1.5;opacity:.55}
 .rb-shard{fill:var(--rb-col);stroke:#fff;stroke-width:1;stroke-opacity:.5}
 .rb-sclera{fill:#0b0410;stroke:var(--rb-col);stroke-width:2}
-.rb-core-mark{fill:none;stroke:#fff;stroke-width:1;stroke-dasharray:3 5;opacity:.45}
+.rb-weak{transition:opacity .15s}
+.rb-weak-glow{fill:#fff;opacity:.18;animation:rbWeak .9s ease-in-out infinite alternate}
+.rb-weak-ring{fill:none;stroke:#fff;stroke-width:2.5}
+.rb-weak-core{fill:#fff;stroke:var(--rb-col);stroke-width:1.5}
+.rb.shut .rb-weak,.rb.stagger .rb-weak{opacity:.2}
+.rb.calm .rb-weak-glow{animation:none}
+.rb.mock .rb-body{animation:rbMock .45s steps(3)}
+.rb-beam{position:fixed;inset:0;z-index:9510;pointer-events:none;width:100vw;height:100vh;overflow:visible}
+.rb-beam line{stroke:#ff5470;stroke-width:4;stroke-linecap:round;stroke-dasharray:14 10;filter:drop-shadow(0 0 6px #ff5470);animation:rbBeam .5s linear forwards}
 .rb-pupil{fill:#050008}
 .rb-glint{fill:#fff;opacity:.85}
 .rb-crack{fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;opacity:0;transition:opacity .2s}
@@ -421,6 +431,9 @@ const AnomalyBoss = (() => {
 .rb-drained{animation:rbDrained .4s ease}
 
 @keyframes rbSpin{to{transform:rotate(360deg)}}
+@keyframes rbWeak{from{transform:scale(.8)}to{transform:scale(1.25)}}
+@keyframes rbMock{0%{opacity:.3;filter:saturate(0) brightness(1.8)}50%{opacity:.8}100%{opacity:1;filter:none}}
+@keyframes rbBeam{0%{opacity:1;stroke-dashoffset:0}100%{opacity:0;stroke-dashoffset:-48}}
 @keyframes rbTell{0%{fill:#fff}100%{fill:#14061c}}
 @keyframes rbHit{50%{transform:scale(.94)}}
 @keyframes rbCrit{0%{filter:brightness(2.5)}40%{transform:scale(.88) rotate(-4deg)}100%{filter:none}}
@@ -457,11 +470,12 @@ const AnomalyBoss = (() => {
             + '<circle class="rb-sclera" r="52"/>'
             + '<circle r="36" fill="url(#' + u + 'i)"/>'
             + '<g class="rb-pupil-g"><ellipse class="rb-pupil" rx="6.5" ry="25"/><circle class="rb-glint" cx="-9" cy="-13" r="3.2"/></g>'
-            + '<circle class="rb-core-mark" r="34"/>'
             + '<path class="rb-crack rb-c1" d="M-8,-30 L-2,-12 L-14,4 L-6,22"/>'
             + '<path class="rb-crack rb-c2" d="M22,-18 L10,-2 L26,10 L16,30"/>'
             + '<path class="rb-crack rb-c3" d="M-30,8 L-12,14 L-20,30 M4,-34 L12,-20 L2,-8"/>'
             + '<g class="rb-petals">' + petals + '</g>'
+            + '<g class="rb-weak"><circle class="rb-weak-glow" r="17"/><circle class="rb-weak-ring" r="12"/>'
+            +   '<path class="rb-weak-core" d="M0,-8 L5.5,0 L0,8 L-5.5,0 Z"/></g>'
             + '<circle class="rb-hit" r="100"/>'
             + '</svg>';
     }
@@ -473,7 +487,9 @@ const AnomalyBoss = (() => {
         const el = document.createElement('div');
         el.className = 'rb' + (real ? '' : ' echo') + (_calm() ? ' calm' : '');
         el.innerHTML = '<div class="rb-body">' + _art() + '</div>';
-        const b = { el, real, x: 0, y: 0, alive: true, wander: Math.random() * 10, pupil: el.querySelector('.rb-pupil-g') };
+        const b = { el, real, x: 0, y: 0, alive: true, wander: Math.random() * 10, pupil: el.querySelector('.rb-pupil-g'),
+                    weak: el.querySelector('.rb-weak'), wa: Math.random() * 360, wdir: Math.random() < 0.5 ? -1 : 1, cool: 0 };
+        _aimWeak(b);
         if (real) {
             el.id = 'anomaly-boss';   // addressable (the reality tear in systems3, tests); only the real one has it
             el.setAttribute('role', 'button');
@@ -495,6 +511,16 @@ const AnomalyBoss = (() => {
         });
         document.body.appendChild(el);
         return b;
+    }
+    function _aimWeak(b) { if (b.weak) b.weak.setAttribute('transform', 'rotate(' + b.wa.toFixed(1) + ') translate(0,-' + WEAK_R + ')'); }
+    /* a click, in the art's own units (the 220-wide viewBox), measured from the body's centre */
+    function _local(b, x, y) {
+        const r = b.el.getBoundingClientRect(), k = 220 / Math.max(1, r.width);
+        return { x: (x - (r.left + r.width / 2)) * k, y: (y - (r.top + r.height / 2)) * k };
+    }
+    function _onWeak(b, x, y) {
+        const p = _local(b, x, y), a = b.wa * Math.PI / 180;
+        return Math.hypot(p.x - Math.sin(a) * WEAK_R, p.y + Math.cos(a) * WEAK_R) <= WEAK_HIT;
     }
     function _place(b, x, y) {
         b.x = x; b.y = y;
@@ -561,7 +587,7 @@ const AnomalyBoss = (() => {
         document.addEventListener('keydown', _onKey, true);
         _lastTs = performance.now();
         _refresh();
-        _hintAt('core', 'STRIKE THE CORE FOR DOUBLE DAMAGE', 'target', 1800);
+        _hintAt('weak', 'HIT THE GLOWING WEAK POINT FOR TRIPLE DAMAGE', 'target', 3200);
         _raf = requestAnimationFrame(_frame);
     }
 
@@ -599,6 +625,7 @@ const AnomalyBoss = (() => {
         }
         _stepTears(dt);
         if (_mode === 'seal') _stepSeal(dt);
+        if (_mode === 'fight' && WEAK_DRIFT[_phase]) _bodies().forEach(b => { b.wa = (b.wa + b.wdir * WEAK_DRIFT[_phase] * dt + 360) % 360; _aimWeak(b); });
         _stepEyes();
         _refresh();
     }
@@ -627,7 +654,7 @@ const AnomalyBoss = (() => {
             let dx, dy;
             if (b.real && _px >= 0) { const v = Math.hypot(_px - b.x, _py - b.y) || 1; dx = (_px - b.x) / v; dy = (_py - b.y) / v; }
             else { b.wander += 0.016; dx = Math.sin(b.wander * 1.3); dy = Math.cos(b.wander * 0.9) * 0.6; }
-            b.pupil.setAttribute('transform', 'translate(' + (dx * 13).toFixed(1) + ',' + (dy * 13).toFixed(1) + ')');
+            b.pupil.setAttribute('transform', 'translate(' + (dx * 16).toFixed(1) + ',' + (dy * 16).toFixed(1) + ')');
         });
     }
 
@@ -659,13 +686,16 @@ const AnomalyBoss = (() => {
         if (_mode === 'stagger') { if (src !== 'firewall') K().pop(x, y, 'IMMUNE', 'info', '#ffffff'); return false; }
         if (_mode !== 'fight' || !b.alive) return false;
 
-        if (!b.real) {                                  // an echo
-            b.alive = false;
-            b.el.classList.add('shatter');
-            _heal(ECHO_HEAL, x, y, 'ECHO  +' + ECHO_HEAL);
+        if (!b.real) {                                  // an echo: it cannot be hurt, it feeds the real one
+            if (_t < b.cool) return false;
+            b.cool = _t + ECHO_COOL_S;
+            b.el.classList.remove('mock'); void b.el.offsetWidth; b.el.classList.add('mock');
+            _beam(b, _real);
+            K().pop(x, y, 'ECHO', 'info', '#ffffff');
+            _heal(_amt(ECHO_HEAL), _real.x, _real.y - 30, 'HEALED +' + _amt(ECHO_HEAL));
             _stats.echoes++;
-            K().flash(COL_II, 0.25); K().shake(4);
-            _hintAt('echo', 'THAT WAS AN ECHO. THE REAL ONE IS WATCHING YOU.', 'eye', 2600);
+            K().shake(3);
+            _hintAt('echo', 'ECHOES CANNOT DIE. THEY HEAL THE ONE WATCHING YOU.', 'eye', 3200);
             return false;
         }
         if (_shell === 'shut') {                        // the shell is closed
@@ -673,16 +703,15 @@ const AnomalyBoss = (() => {
             _stats.reflects++;
             const steal = Math.min(Math.max(0, S().energy || 0), _income() * REFLECT_STEAL_S);
             if (steal > 0) { S().energy -= steal; S()._breachHoard = (S()._breachHoard || 0) + steal; _stats.stolen += steal; }
-            _heal(REFLECT_HEAL, x, y, 'REFLECTED');
+            _heal(_amt(REFLECT_HEAL), x, y, 'REFLECTED  +' + _amt(REFLECT_HEAL));
             K().flash(COL, 0.22); K().shake(2);
             _hintAt('shut', 'THE SHELL IS SHUT. EVERY HIT FEEDS IT.', 'shield', 2400);
             return false;
         }
         let dmg = 1, crit = false;
-        if (src === 'click') {
-            const r = b.el.getBoundingClientRect();
-            crit = Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2)) <= r.width / 2 * CORE;
-            if (crit) dmg = 2;
+        if (src === 'click' && _onWeak(b, x, y)) {
+            crit = true; dmg = WEAK_DMG;
+            b.wa = (b.wa + 120 + Math.random() * 120) % 360; b.wdir = -b.wdir; _aimWeak(b);   // found it: it moves
         }
         _damage(dmg, src);
         if (src === 'firewall') return true;
@@ -690,7 +719,7 @@ const AnomalyBoss = (() => {
         if (src === 'click') {
             const pay = _pay(HIT[0], HIT[1], HIT[2]);
             S().energy += pay;
-            K().pop(x, y, crit ? 'CRITICAL  +' + _fmt(pay) : '+' + _fmt(pay), crit ? 'crit' : 'hit', _col());
+            K().pop(x, y, crit ? 'WEAK POINT  -' + WEAK_DMG : '-1', crit ? 'crit' : 'hit', _col());
         } else {
             K().pop(x, y - 20, '-1', 'hit', _col());
         }
@@ -711,8 +740,22 @@ const AnomalyBoss = (() => {
         }
     }
 
+    /* a line from an echo to the real breach: what it fed, and to whom */
+    function _beam(from, to) {
+        if (!to) return;
+        const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), l = document.createElementNS(NS, 'line');
+        svg.setAttribute('class', 'rb-beam'); svg.setAttribute('aria-hidden', 'true');
+        l.setAttribute('x1', from.x); l.setAttribute('y1', from.y); l.setAttribute('x2', to.x); l.setAttribute('y2', to.y);
+        svg.appendChild(l); document.body.appendChild(svg);
+        setTimeout(() => svg.remove(), 520);
+    }
+
+    const _amt = share => Math.max(1, Math.round(_max * share));
+    /* a heal never climbs back over a phase line already crossed: a phase, once won, stays won */
+    const _ceil = () => _phase === 0 ? _max : _phase === 1 ? Math.ceil(_max * 2 / 3) : Math.ceil(_max / 3);
+
     function _heal(n, x, y, text) {
-        _hp = Math.min(_max, _hp + n);
+        _hp = Math.min(_ceil(), _hp + n);
         K().heal();
         K().pop(x, y, text, 'reflect', '#ff5470');
     }
@@ -731,13 +774,13 @@ const AnomalyBoss = (() => {
         const col = _col();
         _bodies().forEach(b => { b.el.style.setProperty('--rb-col', col); b.el.classList.toggle('p3', p === 2); });
         K().colour(col);
-        K().phase(p === 1 ? 'PHASE II  IT SPLITS' : 'PHASE III  ENRAGED');
+        K().phase(p === 1 ? 'PHASE II  FIND THE REAL ONE' : 'PHASE III  ENRAGED');
         K().flash(col, 0.4); K().shake(7);
         _sound('sfx:breach');
         _ticker(p === 1 ? 'The breach splits. Only one of them is real.' : 'The breach is enraged. It is coming for your energy.', col, 4000);
         _stagger(() => {
             _shellUntil = _t + SHELL[p].open;
-            if (p === 1) { _spawnEchoes(); _shuffleAt = _t; _hintAt('split', 'ONLY ONE OF THEM IS WATCHING YOU', 'eye', 3000); }
+            if (p === 1) { _spawnEchoes(); _shuffleAt = _t; _hintAt('split', 'ONLY THE REAL ONE WATCHES YOUR CURSOR. ECHOES HEAL IT.', 'eye', 4200); }
             if (p === 2) { _clearEchoes(); _moveAt = _t + 0.6; _tearAt = _t + 1.2; }
         });
     }
@@ -765,8 +808,7 @@ const AnomalyBoss = (() => {
         setTimeout(() => {
             if (!_active || _phase !== 1) return;
             all.forEach((b, i) => {
-                b.alive = true;
-                b.el.classList.remove('shatter', 'blink');
+                b.el.classList.remove('blink');
                 _place(b, order[i].x, order[i].y);
             });
         }, TELL_S * 1000);
@@ -853,7 +895,7 @@ const AnomalyBoss = (() => {
         _stats.landed++;
         const steal = Math.min(Math.max(0, S().energy || 0), _income() * TEAR_STEAL_S);
         if (steal > 0) { S().energy -= steal; S()._breachHoard = (S()._breachHoard || 0) + steal; _stats.stolen += steal; }
-        _hp = Math.min(_max, _hp + TEAR_HEAL);
+        _hp = Math.min(_ceil(), _hp + _amt(TEAR_HEAL));
         K().heal();
         K().pop(tg.x, tg.y - 24, 'STOLEN  -' + _fmt(steal) + ' E', 'reflect');
         K().flash(COL_RAGE, 0.18); K().shake(3);
@@ -1015,7 +1057,7 @@ const AnomalyBoss = (() => {
             ['energy', 'Bounty' + (clean ? ' (clean x1.5)' : ''), '+' + _fmt(bounty) + ' E' + (mins > 0 ? ' (' + (mins >= 10 ? Math.round(mins) : mins.toFixed(1)) + ' MIN)' : '')],
             ['fragment', 'Fragments', '+' + frags],
             ['clock', 'Sealed in', Math.round(secs) + 'S'],
-            ['target', 'Critical hits', stats.crits + ' OF ' + stats.hits],
+            ['target', 'Weak point hits', stats.crits + ' OF ' + stats.hits],
             ['shield', 'Mistakes', String(stats.reflects + stats.echoes + stats.landed + stats.sealMiss)],
         ].concat(hasProtocol ? [['mult', 'Breach Protocol', 'x2 FOR 30S']] : []) }), _calm() ? 0 : 700);
         _ticker('BREACH SEALED: +' + frags + ' fragments, +' + _fmt(back + bounty) + ' E' + (hasProtocol ? ', x2 multiplier for 30s' : ''), '#44ffaa', 6000);
@@ -1076,7 +1118,7 @@ const AnomalyBoss = (() => {
         const el = _real && _real.el; _real = null;
         _stop();
         if (el) el.remove();
-        document.querySelectorAll('.rb,.rb-ghost,.rb-tear,.rb-seal').forEach(e => e.remove());
+        document.querySelectorAll('.rb,.rb-ghost,.rb-tear,.rb-seal,.rb-beam').forEach(e => e.remove());
         K().clear();
     }
 
@@ -1096,7 +1138,7 @@ const AnomalyBoss = (() => {
         _qa: () => ({ active: _active, ready: _ready, mode: _mode, hits: _hp, max: _max, phase: _phase, left: _left, shell: _shell,
                       hoard: S()._breachHoard || 0, next: _nextBoss - Date.now(), echoes: _echoes.length, tears: _tears.length,
                       seal: _seal ? { locks: _seal.locks, ang: _seal.ang, target: _seal.arcs[_seal.order[_seal.locks]].a, w: _seal.arcs[0].w } : null,
-                      real: _real ? { x: _real.x, y: _real.y } : null, stats: _stats ? Object.assign({}, _stats) : null,
+                      real: _real ? { x: _real.x, y: _real.y, weak: _real.wa } : null, stats: _stats ? Object.assign({}, _stats) : null,
                       FEED: FEED.slice(), HIT: HIT.slice(), BOUNTY: BOUNTY.slice(), FIRST_MS, GAP_MS, GAP_SPREAD_MS, ROLL, LIFE_S }),
         _qaSetLeft: s => { _left = s; },
         _qaSetHp: v => { _hp = Math.max(1, Math.min(_max, v)); },
