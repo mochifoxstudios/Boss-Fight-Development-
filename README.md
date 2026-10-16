@@ -12,7 +12,7 @@ All three bosses live in one file, `src/bosses.js`, and that file is the whole d
 | 1b. `BossAudio`: the bosses' soundtrack and sound effects, synthesized live with Web Audio (no audio files) | done |
 | 2. `AnomalyBoss`: the Reality Breach | done |
 | 3. `MemoryLeakBoss`: the Memory Leak | done |
-| 4. `FirewallBoss`: the Firewall Entity | next |
+| 4. `FirewallBoss`: the Firewall Entity | done |
 
 Development tools (none of these ship):
 
@@ -22,6 +22,7 @@ Development tools (none of these ship):
 | `tests/reality-breach.test.js` | Plays every Reality Breach mechanic in Chromium (57 checks, including that the music plays, switches per phase and stops), using the viewer page. |
 | `tests/balance.js` | Scripted players fight the breach to the end and report wins and time left. |
 | `tests/memory-leak.test.js` | Plays every Memory Leak mechanic in Chromium (52 checks, including a phone with a finger). |
+| `tests/firewall.test.js` | Plays every Firewall Entity mechanic in Chromium (47 checks, including a phone with a finger). |
 | `tests/balance-leak.js` | Scripted players fight the Memory Leak to the end and report wins, peak heap and phase times. |
 
 ## Reality Breach
@@ -96,6 +97,25 @@ A cracked RAM stick hangs under the boss bar and drips allocated memory blocks o
 3. `#memory-leak-terminal` in `index.html` is no longer used. It can stay where it is; nothing in `bosses.js` needs it, and nothing in `index.html` has to change for this boss.
 4. Everything that touches the old boss keeps working: `game.js` calls `MemoryLeakBoss.tick()` and `MemoryLeakBoss.cancel()`, and `music.js` reads `MemoryLeakBoss.isActive()`.
 
+## Firewall Entity
+
+The joke is kept: a wall covers the game. THIS ENTITY IS INVINCIBLE. NO IN-GAME WEAPON CAN DEFEAT IT. SEEK ANOTHER WAY. Tapping it only says BLOCKED. The other way is the inspector: F12, Ctrl+Shift+I or a right-click open it on a desktop, and after two blocked taps an **INSPECT** button appears, so a phone is never stuck. The fight happens inside the inspector, one idea per phase:
+
+- **Phase I: rules.** The Elements tab shows the page. `#firewall-boss` holds six `<rule>` nodes: delete each (it cracks a band of the wall), then delete the firewall itself. Deleting the game's own elements (`main-game`, `energy-display`, `home-screen`) is ACCESS DENIED.
+- **Phase II: styles.** The wall rebuilds itself. Its style holds it in place with three locks, each with a comment saying what it does: `pointer-events` (it catches every click), `z-index` (it sits on top), `opacity` (it can be seen). Set each to the value that undoes it: `none`, `-1`, `0`. Each one visibly changes the wall.
+- **Phase III: console.** Build `document.getElementById('firewall-boss').remove()` from shuffled code chips, two of which are decoys (`'main-game'`, `.hide()`). After two wrong chips the line is shown faintly as a guide.
+- **The trace.** While the inspector is open the firewall traces you: the gauge fills about 2% a second, and each mistake adds 10-12%. At 100% it resets the connection: the inspector closes for 2.5 s and a little progress is undone (two rules, one style, or the console line). It is never a loss: the wall waits, as it always has. Winning a phase drops the trace 30%.
+- **Feedback.** The inspector's status line reports each action, red for a mistake and green for progress, the way a real console would.
+- **The real DevTools still win.** Removing `#firewall-boss` with the browser's own DevTools ends the fight, as it always did.
+- **The pay** is unchanged: x8 income, permanently, once (`state._firewallMult`, read through `getMult()`). The result card gives a grade from mistakes and resets.
+- **When it comes.** Unchanged: prestige 2 or 1,000,000 clicks, a 0.2% roll per tick, once per save. New: it never arrives on top of another crisis (`GlobalEventQueue`), as the other bosses already didn't.
+- **Soundtrack.** Its own songs in C minor: a slow industrial furnace for the wall and the rules (96 BPM), a building pulse for the styles (112), a driving one for the console (124). Sounds for blocked taps, opening the inspector, deletes, ACCESS DENIED, each style set, each chip, and the connection reset.
+
+### Integration into the game
+
+1. Remove the old block from `game.js`. It starts at the banner `DOM BOSS FIGHT — "Firewall Entity"` (reference line 35975) and ends at `window.FirewallBoss = FirewallBoss;` (reference line 36153).
+2. Nothing else changes. `game.js` calls `FirewallBoss.check()` every tick, `FirewallBoss.getMult()` for income and `FirewallBoss.cancel()` from the quit sweep and the run reset; `music.js` reads `FirewallBoss.isActive()`. The quit sweep's list of ids still finds `firewall-boss`.
+
 ### Running
 
 ```sh
@@ -103,6 +123,7 @@ node tools/viewer.js   # writes preview.html (git-ignored); open it in a browser
 node tools/viewer.js out.html --artifact   # the same page, shaped for publishing as a review artifact
 node tests/memory-leak.test.js             # the Memory Leak's checks
 node tests/balance-leak.js 5               # the Memory Leak's balance
+node tests/firewall.test.js                # the Firewall Entity's checks
 npm install            # or reuse a global playwright: NODE_PATH=$(npm root -g)
 npm test               # npm run test:shots also writes screenshots to tests/shots/
 ```

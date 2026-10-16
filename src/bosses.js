@@ -9,7 +9,7 @@
         BossAudio         the bosses' soundtrack and sound effects, synthesized live (Web Audio, no audio files)
      2. AnomalyBoss       the Reality Breach (replaces the AnomalyBoss block in game.js)
      3. MemoryLeakBoss    the Memory Leak     (replaces the block in systems3.js)
-     4. FirewallBoss      the Firewall Entity (next: replaces the block in game.js)
+     4. FirewallBoss      the Firewall Entity (replaces the block in game.js)
 
    Rule for this file: no emoji and no glyph characters anywhere a player can see. Icons and art are generated SVG.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -278,7 +278,7 @@ body.bk-shake{animation:bkShake .18s steps(2) 1}
     }
 
     function end() {
-        if (_bar) { const b = _bar; _bar = null; _fade(b, 350); }
+        if (_bar) { const b = _bar; _bar = null; b.removeAttribute('id'); _fade(b, 350); }   // a fading bar gives up its id at once
         if (_dim) { const d = _dim; _dim = null; _fade(d, 500); }
         if (_card) { _card.remove(); _card = null; }
         if (_hint) { _hint.remove(); _hint = null; }
@@ -287,7 +287,7 @@ body.bk-shake{animation:bkShake .18s steps(2) 1}
         _timers.splice(0).forEach(clearTimeout);
         [_bar, _card, _dim, _res, _hint].forEach(e => { if (e) e.remove(); });
         _bar = _card = _dim = _res = _hint = null;
-        document.querySelectorAll('.bk-pop,.bk-flash').forEach(p => p.remove()); _pops = 0;
+        document.querySelectorAll('.bk-pop,.bk-flash,.bk-bar,.bk-dim,.bk-intro,.bk-hint').forEach(p => p.remove()); _pops = 0;   // fading ones too
         document.body.classList.remove('bk-shake');
     }
 
@@ -469,6 +469,34 @@ const BossAudio = (() => {
             if ((s & 31) === 0) pad(t, [40, 52, 59], d * 32, 1.2);
             if (i === 12) hat(t, 0.25, true);
         } },
+        /* THE FIREWALL ENTITY, in C minor: industrial, a furnace hum, then a terminal's patience */
+        wall: { bpm: 96, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15, r = [0, 0, 3, -2][b];
+            if (i === 0 || i === 6 || i === 10) kick(t, 1);
+            if (i === 8) snare(t, 0.7);
+            if (i % 4 === 2) hat(t, 0.35);
+            if (i % 4 === 0) bass(t, 36 + r, d * 3.5, 0.9, true);
+            if (i === 0) pad(t, [48 + r, 51 + r, 55 + r], d * 16, 1);
+            if (b % 2 === 1 && i === 12) lead(t, 72 + r, d * 3, 0.5);
+        } },
+        ports: { bpm: 112, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15, r = [0, 0, 3, -2][b];
+            if (i % 4 === 0) kick(t, 1);
+            if (i === 4 || i === 12) snare(t, 0.8);
+            hat(t, i % 2 ? 0.35 : 0.6);
+            if (i % 2 === 0) bass(t, 36 + r + (i === 14 ? 7 : 0), d * 1.6, 0.85, true);
+            if (i === 0) pad(t, [48 + r, 51 + r, 55 + r], d * 16, 0.8);
+            if ([0, 3, 6, 10].includes(i)) lead(t, 67 + r + [0, 3, 7, 10][[0, 3, 6, 10].indexOf(i)], d * 1.2, 0.5);
+        } },
+        console: { bpm: 124, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15, r = [0, 0, 3, -2][b];
+            if (i % 4 === 0 || i === 14) kick(t, 1.05);
+            if (i === 4 || i === 12) snare(t, 0.9);
+            hat(t, i % 2 ? 0.45 : 0.8, i === 6);
+            bass(t, 36 + r + (i % 8 === 7 ? 12 : 0), d * 0.9, 0.95, true);
+            if (i === 0) pad(t, [60 + r, 63 + r, 67 + r], d * 16, 0.9);
+            if (i % 2 === 0) lead(t, 72 + r + [0, 7, 3, 10, 12, 10, 7, 3][(i >> 1) % 8], d * 0.9, 0.55);
+        } },
         /* the seal: the music drops away to a heartbeat under a drone */
         seal: { bpm: 140, play(s, t, d) {
             const i = s & 15;
@@ -540,6 +568,14 @@ const BossAudio = (() => {
                 [64, 67, 71, 76].forEach((m, i) => _osc('triangle', hz(m), t + 0.15 + i * 0.05, 0.4, 0.1, sfxBus, 0.003)); },
         heapWarn(t) { _osc('square', 988, t, 0.09, 0.07, sfxBus, 0.002); _osc('square', 988, t + 0.16, 0.09, 0.07, sfxBus, 0.002); },
         cell(t, i) { const m = [64, 67, 69, 71, 74, 76, 79, 81, 83][i || 0]; _osc('triangle', hz(m), t, 0.35, 0.22, sfxBus, 0.004); _osc('sine', hz(m + 12), t, 0.2, 0.06, sfxBus, 0.004); },
+        blocked(t) { _osc('square', 160, t, 0.12, 0.12, sfxBus, 0.002, 120); _noise(t, 0.05, 0.12, sfxBus, 'lowpass', 900); },
+        inspect(t) { [72, 79].forEach((m, i) => _osc('triangle', hz(m), t + i * 0.05, 0.12, 0.12, sfxBus, 0.002)); },
+        delete(t) { _noise(t, 0.12, 0.25, sfxBus, 'bandpass', 2400, 500, 2); _osc('square', 520, t, 0.08, 0.1, sfxBus, 0.002, 200); },
+        unlock(t) { [67, 72, 76, 79].forEach((m, i) => _osc('triangle', hz(m), t + i * 0.06, 0.25, 0.12, sfxBus, 0.002)); },
+        denied(t) { _osc('square', 220, t, 0.14, 0.14, sfxBus, 0.002); _osc('square', 165, t + 0.15, 0.2, 0.14, sfxBus, 0.002); },
+        styleSet(t) { [76, 83].forEach((m, i) => _osc('sine', hz(m), t + i * 0.07, 0.3, 0.16, sfxBus, 0.003)); },
+        chip(t, n) { _osc('square', hz(60 + (n || 0) * 2), t, 0.06, 0.1, sfxBus, 0.002); _noise(t, 0.02, 0.1, sfxBus, 'highpass', 5000); },
+        reset(t) { _osc('sawtooth', 600, t, 0.6, 0.2, sfxBus, 0.005, 60); _noise(t, 0.5, 0.3, sfxBus, 'lowpass', 4000, 150); },
         win(t) { [62, 66, 69, 74, 78].forEach((m, i) => { _osc('sine', hz(m), t + i * 0.09, 1.2, 0.2, sfxBus, 0.003); _osc('triangle', hz(m + 12), t + i * 0.09, 0.5, 0.06, sfxBus, 0.003); });
                  _osc('sine', 73.4, t, 1.6, 0.4, sfxBus, 0.01); },
         fail(t) { _osc('sawtooth', 294, t, 1.3, 0.16, sfxBus, 0.01, 73); _osc('sawtooth', 311, t, 1.3, 0.12, sfxBus, 0.01, 78); _noise(t, 1.2, 0.2, sfxBus, 'lowpass', 2000, 100); },
@@ -2110,3 +2146,609 @@ const MemoryLeakBoss = (() => {
     };
 })();
 window.MemoryLeakBoss = MemoryLeakBoss;
+
+
+/* ── 4. THE FIREWALL ENTITY ─────────────────────────────────────────────────
+
+   Replaces the FirewallBoss block in game.js (see README: Integration). Same global name and the surface the game
+   uses: spawn(), check() (game.js, every tick it rolls), getMult() (the x8 it pays, read into income), cancel() (the
+   quit sweep and the run reset), isActive() (music.js). The wall is still <div id="firewall-boss">, and deleting it
+   with the browser's own DevTools still wins, as it always did.
+
+   THE JOKE, KEPT: a wall covers the game. THIS ENTITY IS INVINCIBLE. NO IN-GAME WEAPON CAN DEFEAT IT. SEEK ANOTHER
+   WAY. Tapping it only says BLOCKED. The other way is the inspector: F12, Ctrl+Shift+I or a right-click open it, and
+   after two blocked taps an INSPECT button appears, so a phone is never stuck.
+
+   THE FIGHT, inside the inspector, one idea per phase:
+     Phase I     - RULES. The Elements tab shows the page. #firewall-boss holds six <rule> nodes; delete them (each
+                   cracks a band of the wall), then delete the firewall itself. Deleting the game's own elements is
+                   ACCESS DENIED, and costs trace.
+     Phase II    - STYLES. The wall rebuilds with three locks in its style: pointer-events, z-index, opacity. Each line
+                   says what it does; set each to the value that undoes it (click-through, behind, invisible). A wrong
+                   value costs trace.
+     Phase III   - CONSOLE. Build the line that removes it, from shuffled code chips (two are decoys). A chip out of
+                   order costs trace; after two, the line is shown faintly as a guide.
+   THE TRACE: while the inspector is open the firewall traces you; the gauge fills slowly and each mistake adds to it.
+   At 100% it resets the connection: the inspector closes for a moment and a little progress is undone (two rules, one
+   style, or the console line). Never a loss: the wall waits, as it always has.
+
+   THE PAY (unchanged): x8 income, permanently, once. */
+
+const FirewallBoss = (() => {
+    'use strict';
+    const K = () => window.BossKit;
+
+    /* ── tuning ─────────────────────────────────────────────────────────── */
+    const COL = '#ff2200', COL_II = '#ff6a00', COL_III = '#ffb000', COL_WIN = '#44ff88';
+    const ROLL = 0.002;                                     // a tick's chance, once eligible (unchanged)
+    const RULES = 6, BLOCKED_FOR_HINT = 2;
+    const TRACE_RATE = [1.6, 1.9, 2.2], TRACE_WRONG = [12, 10, 10], RESET_LOCK_S = 2.5;
+    const STYLES = [
+        { prop: 'pointer-events', note: 'it catches every click', opts: ['all', 'auto', 'none'], want: 'none', goal: 'CLICKS PASS THROUGH' },
+        { prop: 'z-index', note: 'it sits on top of the game', opts: ['15000', '9999', '-1'], want: '-1', goal: 'IT SITS BEHIND' },
+        { prop: 'opacity', note: 'it can be seen', opts: ['1', '0.5', '0'], want: '0', goal: 'IT CANNOT BE SEEN' },
+    ];
+    const LINE = ['document', '.getElementById(', "'firewall-boss'", ')', '.remove()'];
+    const DECOYS = ["'main-game'", '.hide()'];
+    const GUIDE_AFTER = 2;
+
+    /* ── state ──────────────────────────────────────────────────────────── */
+    let _active = false, _mode = 'off';                     // off | wall | fight | reset | dying
+    let _phase = 0, _trace = 0, _t = 0, _lockUntil = 0, _blocked = 0, _open = false;
+    let _rules = [], _bossNode = false, _styles = {}, _line = [], _chipWrong = 0, _chips = [];
+    let _wall = null, _insp = null, _chipBtn = null, _observer = null, _raf = 0, _lastTs = 0;
+    let _stats = null, _hints = null;
+
+    const S = () => (typeof state !== 'undefined' ? state : {});
+    const _running = () => (typeof isRunning !== 'undefined' ? !!isRunning : true);
+    const _calm = () => !!(K() && K().calm());
+    const _fx = (name, fallback, arg) => {
+        try { if (window.BossAudio && BossAudio.sfx(name, arg)) return; } catch (e) {}
+        try { if (fallback && window.GameSound) GameSound.play(fallback); } catch (e) {}
+    };
+    const _music = name => { try { if (window.BossAudio) name ? BossAudio.song(name) : BossAudio.stop(); } catch (e) {} };
+    const _ticker = (t, c, ms) => { try { if (typeof showNotif === 'function') showNotif(t, c, ms); else if (window.Ticker) Ticker.show(t, c, ms); } catch (e) {} };
+    function _paused() {
+        const b = document.body.classList;
+        return !_running() || b.contains('crash-freeze') || !!window._loreActive;
+    }
+    const _col = () => _phase === 2 ? COL_III : _phase === 1 ? COL_II : COL;
+    const _total = () => RULES + 1 + STYLES.length + LINE.length;
+    const _done = () => (RULES - _rules.filter(r => r).length) + (_bossNode ? 1 : 0)
+        + STYLES.filter(s => _styles[s.prop] === s.want).length + _line.length;
+
+    /* ── art ────────────────────────────────────────────────────────────── */
+    const CSS = `
+#firewall-boss{position:fixed;inset:0;z-index:9300;overflow:hidden;cursor:not-allowed;font-family:var(--bk-font,'Courier New',ui-monospace,monospace);
+  background:rgba(4,0,8,.96);color:${COL};touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;
+  transition:opacity .5s ease}
+#firewall-boss .fw-bricks{position:absolute;inset:0;width:100%;height:100%}
+.fw-band{transition:opacity .45s ease,transform .45s ease;transform-box:fill-box;transform-origin:center}
+.fw-band.gone{opacity:.06;transform:scaleY(.4)}
+.fw-brick{fill:#1a0505;stroke:color-mix(in srgb,currentColor 55%,transparent);stroke-width:1.5}
+.fw-glow{fill:currentColor;opacity:.06;animation:fwHeat 2.4s ease-in-out infinite alternate}
+#firewall-boss .fw-copy{position:absolute;left:50%;top:44%;width:min(560px,calc(100vw - 32px));transform:translate(-50%,-50%);text-align:center;pointer-events:none}
+.fw-title{font-size:clamp(28px,7vw,60px);font-weight:900;letter-spacing:.14em;color:#ff3a14;text-shadow:0 0 30px #ff0000,0 0 70px #ff000055}
+.fw-sub{margin-top:14px;font-size:clamp(11px,2.4vw,14px);letter-spacing:4px;line-height:2;color:#ff6a3a}
+.fw-sub b{color:#ffa060;font-weight:700}
+.fw-tag{margin-top:16px;font-size:10px;letter-spacing:2px;color:#6a3a2a}
+#firewall-boss.p2{color:${COL_II}}
+#firewall-boss.p3{color:${COL_III}}
+#firewall-boss.see-through{pointer-events:none}
+#firewall-boss.behind .fw-copy{opacity:.35}
+#firewall-boss.faded{opacity:.25}
+#firewall-boss.calm .fw-glow{animation:none}
+#firewall-boss.shatter{animation:fwShatter .9s ease-in forwards;pointer-events:none}
+
+.fw-inspect{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(150px + env(safe-area-inset-bottom,0px));z-index:9620;
+  display:flex;align-items:center;gap:8px;padding:12px 16px;border:1px solid ${COL};background:rgba(20,4,4,.95);color:#fff;cursor:pointer;
+  font:700 12px var(--bk-font,'Courier New',ui-monospace,monospace);letter-spacing:3px;touch-action:manipulation;animation:fwPop .35s ease both}
+.fw-inspect svg{width:18px;height:18px}
+.fw-inspect:focus-visible{outline:2px solid #fff;outline-offset:3px}
+
+.fw-insp{position:fixed;z-index:9610;display:flex;flex-direction:column;background:#0d0f14;color:#c8d0dc;border:1px solid #2a3140;
+  font:12px/1.5 ui-monospace,'Courier New',monospace;box-shadow:0 0 40px rgba(0,0,0,.7);
+  right:0;top:96px;bottom:0;width:min(440px,100vw);animation:fwSlide .3s ease both}
+@media (max-width:640px){.fw-insp{left:0;right:0;top:auto;width:auto;height:58vh}}
+.fw-insp.out{animation:fwSlideOut .25s ease both}
+.fw-bar{display:flex;align-items:stretch;border-bottom:1px solid #2a3140;background:#141821;flex:none}
+.fw-tab{padding:9px 12px;color:#6b7686;letter-spacing:1px}
+.fw-tab.on{color:#fff;box-shadow:inset 0 -2px 0 #4c8dff}
+.fw-x{margin-left:auto;width:40px;border:0;background:none;color:#8a95a6;cursor:pointer}
+.fw-x svg{width:14px;height:14px}
+.fw-body{flex:1;overflow:auto;padding:8px 0}
+.fw-foot{flex:none;padding:7px 12px;border-top:1px solid #2a3140;color:#6b7686;font-size:11px;transition:color .2s,background .2s}
+.fw-foot.bad{color:#ff8a7a;background:#2a1014}
+.fw-foot.good{color:#7dffb0;background:#0f2a1a}
+.fw-row{display:flex;align-items:center;min-height:38px;padding:0 6px 0 calc(10px + var(--d,0) * 16px);gap:8px;white-space:nowrap}
+.fw-row .fw-code{flex:1;overflow:hidden;text-overflow:ellipsis}
+.fw-row.rule .fw-code,.fw-row.boss .fw-code{color:#ffb4a0}
+.fw-row.gone{opacity:.3;text-decoration:line-through}
+.fw-t{color:#7fb4ff}.fw-a{color:#d29bff}.fw-v{color:#ffcf7a}.fw-c{color:#5e6b7d}
+.fw-del{width:40px;height:32px;flex:none;border:1px solid #3a2026;background:#1d1216;color:#ff7a7a;cursor:pointer;touch-action:manipulation;display:grid;place-items:center}
+.fw-del svg{width:16px;height:16px}
+.fw-del:disabled{opacity:.25;cursor:default}
+.fw-del:focus-visible,.fw-opt:focus-visible,.fw-chip:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.fw-row.locked .fw-del{border-color:#3a3a46;color:#6b7686}
+.fw-style{padding:10px 12px;border-bottom:1px solid #1c2230}
+.fw-style .fw-c{display:block;margin-bottom:6px}
+.fw-opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.fw-opt{min-width:56px;min-height:36px;padding:0 10px;border:1px solid #2f3a4d;background:#151b26;color:#ffcf7a;cursor:pointer;font:inherit;touch-action:manipulation}
+.fw-opt.on{border-color:#4c8dff;background:#1a2a48;color:#fff}
+.fw-opt.good{border-color:${COL_WIN};background:#12301e;color:#fff}
+.fw-style.done .fw-prop{color:${COL_WIN}}
+.fw-console{padding:12px}
+.fw-line{min-height:44px;padding:10px;background:#090b10;border:1px solid #232a38;color:#e8edf5;word-break:break-all;position:relative}
+.fw-line .fw-guide{position:absolute;left:10px;right:10px;top:10px;color:#2f3a4d;pointer-events:none}
+.fw-line .fw-typed{position:relative}
+.fw-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.fw-chip{min-height:40px;padding:0 12px;border:1px solid #2f3a4d;background:#151b26;color:#e8edf5;cursor:pointer;font:inherit;touch-action:manipulation}
+.fw-chip.used{opacity:.2;pointer-events:none}
+.fw-chip.bad{animation:fwBad .3s steps(3);border-color:${COL}}
+.fw-insp.locked .fw-body{opacity:.35;pointer-events:none}
+
+@keyframes fwHeat{from{opacity:.03}to{opacity:.12}}
+@keyframes fwShatter{20%{filter:brightness(2.5)}100%{opacity:0;transform:scale(1.15);filter:blur(6px)}}
+@keyframes fwPop{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes fwSlide{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+@keyframes fwSlideOut{to{opacity:0;transform:translateY(24px)}}
+@keyframes fwBad{0%,100%{transform:none}33%{transform:translateX(-5px)}66%{transform:translateX(5px)}}
+`;
+    function _css() {
+        if (document.getElementById('fw-css')) return;
+        const s = document.createElement('style'); s.id = 'fw-css'; s.textContent = CSS;
+        document.head.appendChild(s);
+    }
+    const SVG = (inner, vb) => '<svg viewBox="' + (vb || '0 0 24 24') + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+    const TRASH = SVG('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>');
+    const LOCK = SVG('<rect x="5" y="11" width="14" height="10" rx="1"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>');
+    const CLOSE = SVG('<path d="M6 6l12 12M18 6 6 18"/>');
+    const CURSOR = SVG('<path d="M5 3l14 8-6 2-2 6z"/>');
+
+    function _wallArt() {
+        let bands = '';
+        for (let r = 0; r < RULES; r++) {
+            let row = '';
+            const h = 100 / RULES, y = r * h;
+            for (let c = -1; c < 9; c++) row += '<rect class="fw-brick" x="' + (c * 12.5 + (r % 2 ? 6.25 : 0)) + '" y="' + (y + 0.6) + '" width="12" height="' + (h - 1.2) + '"/>';
+            bands += '<g class="fw-band" data-r="' + r + '">' + row + '</g>';
+        }
+        return '<svg class="fw-bricks" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' + bands
+            + '<rect class="fw-glow" x="0" y="0" width="100" height="100"/></svg>'
+            + '<div class="fw-copy"><div class="fw-title">FIREWALL ENTITY</div>'
+            + '<div class="fw-sub">THIS ENTITY IS INVINCIBLE<br>NO IN-GAME WEAPON CAN DEFEAT IT<br><b>SEEK ANOTHER WAY</b></div>'
+            + '<div class="fw-tag">id="firewall-boss"   z-index: 15000   pointer-events: all</div></div>';
+    }
+
+    /* ── the wall ───────────────────────────────────────────────────────── */
+    function spawn() {
+        if (_active || S()._firewallDefeated) return false;
+        if (window.GlobalEventQueue && !GlobalEventQueue.hold('firewallBoss')) return false;   // never on top of another crisis
+        _css();
+        _active = true; _mode = 'wall'; _phase = 0; _trace = 0; _t = 0; _blocked = 0; _open = false;
+        _rules = new Array(RULES).fill(true); _bossNode = false; _styles = {}; _line = []; _chipWrong = 0;
+        STYLES.forEach(s => { _styles[s.prop] = s.opts[0]; });
+        _stats = { blocked: 0, denied: 0, wrongStyle: 0, wrongChip: 0, resets: 0, at: [] };
+        _hints = {};
+        _wall = document.createElement('div');
+        _wall.id = 'firewall-boss';
+        _wall.className = _calm() ? 'calm' : '';
+        _wall.setAttribute('role', 'region');
+        _wall.setAttribute('aria-label', 'Firewall Entity. It cannot be hurt by clicking. Open the inspector to fight it.');
+        _wall.innerHTML = _wallArt();
+        _wall.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); _blockedTap(e.clientX, e.clientY); });
+        _wall.addEventListener('click', e => e.stopPropagation());
+        _wall.addEventListener('contextmenu', e => { e.preventDefault(); _openInspector(); });
+        document.body.appendChild(_wall);
+        _observer = new MutationObserver(() => { if (_active && !document.getElementById('firewall-boss')) _devtoolsWin(); });
+        _observer.observe(document.body, { childList: true });
+        document.addEventListener('keydown', _onKey, true);
+        _fx('siren', 'stinger:eventStart');
+        _music('wall');
+        _ticker('FIREWALL ENTITY DETECTED: impervious to all clicks. Seek another way.', COL, 9000);
+        _lastTs = performance.now();
+        _raf = requestAnimationFrame(_frame);
+        return true;
+    }
+
+    function _blockedTap(x, y) {
+        if (_mode !== 'wall' && _mode !== 'fight' && _mode !== 'reset') return;
+        _blocked++; _stats.blocked++;
+        K().pop(x, y, 'BLOCKED', 'reflect', COL);
+        _fx('blocked');
+        if (_blocked >= BLOCKED_FOR_HINT && !_open) _showInspectButton();
+    }
+
+    function _showInspectButton() {
+        if (_chipBtn || _open || _mode === 'reset') return;
+        _chipBtn = document.createElement('button');
+        _chipBtn.type = 'button';
+        _chipBtn.className = 'fw-inspect';
+        _chipBtn.innerHTML = CURSOR + '<span>INSPECT</span>';
+        _chipBtn.setAttribute('aria-label', 'Inspect the firewall element');
+        _chipBtn.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); _openInspector(); });
+        _chipBtn.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) _openInspector(); });
+        document.body.appendChild(_chipBtn);
+        if (!_hints.inspect) { _hints.inspect = true; K().hint('SEEK ANOTHER WAY: INSPECT IT', innerWidth / 2, innerHeight * 0.7, 3200, COL, 'eye'); }
+    }
+
+    function _onKey(e) {
+        if (!_active) return;
+        const k = (e.key || '').toLowerCase();
+        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && k === 'i') || (e.metaKey && e.altKey && k === 'i')) { e.preventDefault(); e.stopPropagation(); _openInspector(); return; }
+        if (e.key === 'Escape' && _open) { e.preventDefault(); _closeInspector(); }
+    }
+
+    /* ── the inspector: the fight ───────────────────────────────────────── */
+    function _openInspector() {
+        if (!_active || _open || _mode === 'reset' || _mode === 'dying') return;
+        _open = true;
+        if (_chipBtn) { _chipBtn.remove(); _chipBtn = null; }
+        if (_mode === 'wall') {                          // the first look starts the fight proper
+            _mode = 'fight';
+            K().bar({ name: 'FIREWALL ENTITY', col: COL, marks: [(RULES + 1) / _total(), (RULES + 1 + STYLES.length) / _total()].map(f => 1 - f) });
+            K().phase('PHASE I  RULES');
+            _music('wall');
+            _stats.at[0] = Math.round(_t);
+        }
+        _insp = document.createElement('div');
+        _insp.className = 'fw-insp';
+        _insp.setAttribute('role', 'dialog');
+        _insp.setAttribute('aria-label', 'Inspector');
+        document.body.appendChild(_insp);
+        _fx('inspect');
+        _render();
+        if (_phase === 0) _hintAt('rules', 'DELETE ITS SIX RULES, THEN THE FIREWALL. LEAVE THE GAME ALONE.', 'target');
+    }
+    function _closeInspector() {
+        if (!_insp) return;
+        const i = _insp; _insp = null; _open = false;
+        i.classList.add('out'); setTimeout(() => i.remove(), 260);
+        if (_active && _mode === 'fight') _showInspectButton();
+    }
+
+    const _tag = (name, attrs, close) => '<span class="fw-t">&lt;' + name + '</span>'
+        + (attrs || []).map(([a, v]) => ' <span class="fw-a">' + a + '</span>=<span class="fw-v">"' + v + '"</span>').join('')
+        + '<span class="fw-t">&gt;</span>' + (close ? '<span class="fw-c">...</span><span class="fw-t">&lt;/' + name + '&gt;</span>' : '');
+
+    function _render() {
+        if (!_insp) return;
+        const tabs = ['Elements', 'Styles', 'Console'];
+        _insp.innerHTML = '<div class="fw-bar">' + tabs.map((t, i) => '<span class="fw-tab' + (i === _phase ? ' on' : '') + '">' + t + '</span>').join('')
+            + '<button class="fw-x" type="button" aria-label="Close the inspector">' + CLOSE + '</button></div>'
+            + '<div class="fw-body"></div><div class="fw-foot"></div>';
+        _insp.querySelector('.fw-x').addEventListener('click', e => { e.stopPropagation(); _closeInspector(); });
+        const body = _insp.querySelector('.fw-body'), foot = _insp.querySelector('.fw-foot');
+        if (_phase === 0) _renderElements(body, foot);
+        else if (_phase === 1) _renderStyles(body, foot);
+        else _renderConsole(body, foot);
+        foot.dataset.base = foot.textContent;
+        foot.setAttribute('role', 'status');
+        _paintStatus();
+        _insp.classList.toggle('locked', _mode === 'reset');
+    }
+
+    function _row(depth, html, cls, onDel, label) {
+        const r = document.createElement('div');
+        r.className = 'fw-row' + (cls ? ' ' + cls : '');
+        r.style.setProperty('--d', depth);
+        r.innerHTML = '<span class="fw-code">' + html + '</span>';
+        if (onDel) {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'fw-del';
+            b.innerHTML = cls && cls.includes('locked') ? LOCK : TRASH;
+            b.setAttribute('aria-label', 'Delete ' + label);
+            b.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); onDel(); });
+            b.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) onDel(); });
+            r.appendChild(b);
+        }
+        return r;
+    }
+
+    function _renderElements(body, foot) {
+        const add = r => body.appendChild(r);
+        add(_row(0, '<span class="fw-t">&lt;html&gt;</span>'));
+        add(_row(1, _tag('head', [], true)));
+        add(_row(1, _tag('body', [['class', 'game-active']])));
+        add(_row(2, _tag('div', [['id', 'main-game']], true), 'game', () => _denied('main-game'), 'the game itself'));
+        add(_row(2, _tag('div', [['id', 'energy-display']], true), 'game', () => _denied('energy-display'), 'your energy counter'));
+        const left = _rules.filter(r => r).length;
+        add(_row(2, _tag('div', [['id', 'firewall-boss'], ['style', 'z-index: 15000']]) + (left ? ' <span class="fw-c">/* protected by ' + left + ' rule' + (left === 1 ? '' : 's') + ' */</span>' : ''),
+            'boss' + (left ? ' locked' : ''), () => _deleteBoss(), 'the firewall'));
+        const names = ['deny-click', 'deny-touch', 'deny-key', 'deny-scroll', 'deny-focus', 'deny-escape'];
+        _rules.forEach((on, i) => add(_row(3, _tag('rule', [['name', names[i]]], true), 'rule' + (on ? '' : ' gone'), on ? () => _deleteRule(i) : null, 'rule ' + names[i])));
+        add(_row(2, _tag('div', [['id', 'home-screen'], ['class', 'hidden']], true), 'game', () => _denied('home-screen'), 'the home screen'));
+        add(_row(1, '<span class="fw-t">&lt;/body&gt;</span>'));
+        foot.textContent = left ? 'Delete the <rule> nodes inside #firewall-boss' : 'Unprotected. Delete #firewall-boss';
+    }
+
+    function _deleteRule(i) {
+        if (!_canAct() || !_rules[i]) return;
+        _rules[i] = false;
+        _fx('delete');
+        _status('RULE DELETED', 'good');
+        const band = _wall && _wall.querySelector('.fw-band[data-r="' + i + '"]'); if (band) band.classList.add('gone');
+        K().shake(2);
+        _render(); _refresh();
+        if (!_rules.some(r => r)) { _fx('unlock'); _hintAt('boss', 'UNPROTECTED. NOW DELETE THE FIREWALL ITSELF.', 'target'); }
+    }
+    function _deleteBoss() {
+        if (!_canAct()) return;
+        if (_rules.some(r => r)) { _mistake('PROTECTED BY ITS RULES', 'denied'); return; }
+        _bossNode = true;
+        _fx('delete'); K().flash(COL, 0.35); K().shake(6);
+        _toPhase(1);
+    }
+    function _denied(what) {
+        if (!_canAct()) return;
+        _stats.denied++;
+        _mistake('ACCESS DENIED: THAT IS THE GAME (' + what + ')', 'denied');
+        _hintAt('denied', 'ONLY DELETE WHAT BELONGS TO THE FIREWALL', 'warning');
+    }
+
+    function _renderStyles(body, foot) {
+        const head = document.createElement('div');
+        head.className = 'fw-style';
+        head.innerHTML = '<span class="fw-c">/* element.style, #firewall-boss */</span>';
+        body.appendChild(head);
+        STYLES.forEach(s => {
+            const ok = _styles[s.prop] === s.want;
+            const box = document.createElement('div');
+            box.className = 'fw-style' + (ok ? ' done' : '');
+            box.innerHTML = '<span class="fw-c">/* ' + (ok ? 'done: ' + s.goal.toLowerCase() : s.note) + ' */</span>'
+                + '<span class="fw-a fw-prop">' + s.prop + '</span>: <span class="fw-v">' + _styles[s.prop] + '</span>;<div class="fw-opts"></div>';
+            const opts = box.querySelector('.fw-opts');
+            s.opts.forEach(o => {
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'fw-opt' + (_styles[s.prop] === o ? (ok ? ' good' : ' on') : '');
+                b.textContent = o;
+                b.disabled = ok;
+                b.setAttribute('aria-label', 'Set ' + s.prop + ' to ' + o);
+                b.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); _setStyle(s, o); });
+                b.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) _setStyle(s, o); });
+                opts.appendChild(b);
+            });
+            body.appendChild(box);
+        });
+        foot.textContent = 'Set each value to undo what the comment says it does';
+    }
+    function _setStyle(s, o) {
+        if (!_canAct() || _styles[s.prop] === s.want || _styles[s.prop] === o) return;
+        _styles[s.prop] = o;
+        if (o === s.want) {
+            _fx('styleSet');
+            if (_wall) _wall.classList.add({ 'pointer-events': 'see-through', 'z-index': 'behind', 'opacity': 'faded' }[s.prop]);
+            _status('DONE: ' + s.goal, 'good');
+        } else {
+            _stats.wrongStyle++;
+            _mistake('THAT KEEPS IT IN PLACE', 'wrong');
+        }
+        _render(); _refresh();
+        if (STYLES.every(x => _styles[x.prop] === x.want)) { K().flash(COL_II, 0.35); K().shake(6); _toPhase(2); }
+    }
+
+    function _renderConsole(body, foot) {
+        const box = document.createElement('div');
+        box.className = 'fw-console';
+        const typed = _line.map(i => LINE[i]).join('');
+        box.innerHTML = '<div class="fw-line">' + (_chipWrong >= GUIDE_AFTER ? '<span class="fw-guide">&gt; ' + _esc(LINE.join('')) + '</span>' : '')
+            + '<span class="fw-typed">&gt; ' + _esc(typed) + '</span></div><div class="fw-chips"></div>';
+        const chips = box.querySelector('.fw-chips');
+        _chips.forEach(c => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'fw-chip' + (c.used ? ' used' : '');
+            b.textContent = c.text;
+            b.setAttribute('aria-label', 'Add ' + c.text);
+            b.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); _chip(c, b); });
+            b.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) _chip(c, b); });
+            chips.appendChild(b);
+        });
+        body.appendChild(box);
+        foot.textContent = 'Build the line that removes it, in order';
+    }
+    const _esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    function _chip(c, el) {
+        if (!_canAct() || c.used) return;
+        if (c.idx === _line.length) {
+            c.used = true; _line.push(c.idx);
+            _fx('chip', null, _line.length);
+            _render(); _refresh();
+            if (_line.length === LINE.length) _win();
+        } else {
+            _stats.wrongChip++; _chipWrong++;
+            el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad');
+            _mistake(c.idx < 0 ? 'THAT WOULD NOT REMOVE IT' : 'NOT YET: OUT OF ORDER', 'wrong');
+            if (_chipWrong === GUIDE_AFTER) { _render(); _hintAt('guide', 'THE LINE IS SHOWN FAINTLY. FOLLOW IT.', 'eye'); }
+        }
+    }
+    function _shuffleChips() {
+        _chips = LINE.map((text, idx) => ({ text, idx, used: false })).concat(DECOYS.map(text => ({ text, idx: -1, used: false })));
+        for (let i = _chips.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [_chips[i], _chips[j]] = [_chips[j], _chips[i]]; }
+        if (_chips[0].idx === 0) _chips.push(_chips.shift());   // never hand over the first chip in first place
+    }
+
+    /* the inspector's status line reports what just happened (red or green), then returns to its instruction */
+    let _statusUntil = 0, _statusText = '', _statusKind = '';
+    function _status(text, kind) { _statusText = text; _statusKind = kind; _statusUntil = _t + 2.4; _paintStatus(); }
+    function _paintStatus() {
+        const f = _insp && _insp.querySelector('.fw-foot'); if (!f) return;
+        const on = _t < _statusUntil;
+        if (on) { if (f.textContent !== _statusText) f.textContent = _statusText; }
+        else if (f.dataset.base && f.textContent !== f.dataset.base) f.textContent = f.dataset.base;
+        f.classList.toggle('bad', on && _statusKind === 'bad'); f.classList.toggle('good', on && _statusKind === 'good');
+    }
+
+    /* ── trace, mistakes, resets ────────────────────────────────────────── */
+    const _canAct = () => _active && _mode === 'fight' && _open;
+    function _mistake(text, sound) {
+        _trace = Math.min(100, _trace + TRACE_WRONG[_phase]);
+        _status(text + '   TRACE +' + TRACE_WRONG[_phase] + '%', 'bad');
+        K().flash(COL, 0.18); K().shake(3);
+        _fx(sound === 'denied' ? 'denied' : 'segfault');
+        _refresh();
+        if (_trace >= 100) _reset();
+    }
+    function _reset() {
+        _stats.resets++;
+        _mode = 'reset'; _lockUntil = _t + RESET_LOCK_S; _trace = 0;
+        /* a little progress is undone */
+        if (_phase === 0) { let n = 2; for (let i = 0; i < RULES && n; i++) if (!_rules[i]) { _rules[i] = true; n--; const b = _wall && _wall.querySelector('.fw-band[data-r="' + i + '"]'); if (b) b.classList.remove('gone'); } }
+        else if (_phase === 1) { const s = STYLES.find(x => _styles[x.prop] === x.want); if (s) { _styles[s.prop] = s.opts[0]; if (_wall) _wall.classList.remove({ 'pointer-events': 'see-through', 'z-index': 'behind', 'opacity': 'faded' }[s.prop]); } }
+        else { _line = []; _chips.forEach(c => { c.used = false; }); }
+        _fx('reset');
+        K().flash('#ffffff', 0.4); K().shake(8);
+        K().pop(innerWidth / 2, innerHeight / 2, 'CONNECTION RESET', 'reflect', COL);
+        _closeInspector();
+        if (_chipBtn) { _chipBtn.remove(); _chipBtn = null; }
+        _hintAt('reset', 'IT TRACED YOU. WAIT, THEN INSPECT AGAIN. WORK BEFORE THE TRACE FILLS.', 'warning');
+        _refresh();
+    }
+
+    function _toPhase(p) {
+        _phase = p;
+        _stats.at[p] = Math.round(_t);
+        _trace = Math.max(0, _trace - 30);                 // a phase won buys some time
+        if (_wall) { _wall.classList.toggle('p2', p === 1); _wall.classList.toggle('p3', p === 2); }
+        K().colour(_col());
+        K().phase(p === 1 ? 'PHASE II  STYLES' : 'PHASE III  CONSOLE');
+        _fx('phase', 'stinger:eventStart');
+        _music(p === 1 ? 'ports' : 'console');
+        if (p === 1) {
+            if (_wall) _wall.querySelectorAll('.fw-band').forEach(b => b.classList.remove('gone'));   // it rebuilds itself
+            _ticker('The firewall rebuilt itself. Its style is what holds it in place.', COL_II, 5000);
+            _hintAt('styles', 'IT REBUILT. UNDO ITS STYLE: CLICKS THROUGH, BEHIND, INVISIBLE.', 'target');
+        } else {
+            _shuffleChips();
+            if (_wall) _wall.classList.remove('see-through', 'behind', 'faded');
+            _ticker('It is holding on. Remove it from the console.', COL_III, 5000);
+            _hintAt('console', 'BUILD THE LINE THAT REMOVES IT. TWO CHIPS ARE DECOYS.', 'target');
+        }
+        _render(); _refresh();
+    }
+
+    function _hintAt(key, text, ic) {
+        if (_hints[key]) return;
+        _hints[key] = true;
+        K().hint(text, innerWidth < 641 ? innerWidth / 2 : (innerWidth - 440) / 2, 110, 3800, _col(), ic);
+    }
+
+    function _frame(now) {
+        if (!_active) return;
+        _raf = requestAnimationFrame(_frame);
+        const dt = Math.min(0.1, (now - _lastTs) / 1000);
+        _lastTs = now;
+        const paused = _paused();
+        try { if (window.BossAudio) BossAudio.duck(paused); } catch (e) {}
+        if (paused) return;
+        _t += dt;
+        if (_mode === 'fight' && _open) {
+            const before = _trace;
+            _trace = Math.min(100, _trace + TRACE_RATE[_phase] * dt);
+            if (before < 80 && _trace >= 80) _fx('heapWarn');
+            if (_trace >= 100) _reset();
+        }
+        if (_mode === 'reset' && _t >= _lockUntil) { _mode = 'fight'; _showInspectButton(); }
+        _paintStatus();
+        _refresh();
+    }
+
+    function _refresh() {
+        if (!_active || _mode === 'wall' || !K()) return;
+        K().hp(1 - _done() / _total());
+        K().right(_mode === 'reset' ? 'RECONNECTING' : 'TRACE ' + Math.floor(_trace) + '%', _trace >= 80 || _mode === 'reset');
+        if (K().gauge) K().gauge('TRACE', _trace / 100, _trace >= 80 ? COL : _trace >= 50 ? COL_III : COL_WIN, _trace >= 80);
+        K().sub(_mode === 'reset' ? 'CONNECTION RESET. INSPECT AGAIN IN A MOMENT.'
+            : !_open ? 'OPEN THE INSPECTOR TO FIGHT IT   F12, RIGHT-CLICK, OR THE INSPECT BUTTON'
+            : _phase === 0 ? (_rules.some(r => r) ? _rules.filter(r => r).length + ' RULES PROTECT IT' : 'UNPROTECTED')
+            : _phase === 1 ? STYLES.filter(s => _styles[s.prop] !== s.want).length + ' STYLE LOCKS LEFT'
+            : 'CONSOLE: ' + _line.length + ' OF ' + LINE.length);
+    }
+
+    /* ── endings ────────────────────────────────────────────────────────── */
+    function _stop() {
+        _active = false; _mode = 'off'; _open = false;
+        cancelAnimationFrame(_raf); _raf = 0;
+        if (_observer) { _observer.disconnect(); _observer = null; }
+        document.removeEventListener('keydown', _onKey, true);
+        if (_insp) { _insp.remove(); _insp = null; }
+        if (_chipBtn) { _chipBtn.remove(); _chipBtn = null; }
+        if (window.GlobalEventQueue) GlobalEventQueue.unhold('firewallBoss');
+        _music(null);
+        try { if (window.BossAudio) BossAudio.duck(false); } catch (e) {}
+    }
+
+    function _pay() {
+        const st = S();
+        st._firewallDefeated = true;
+        st._firewallMult = (st._firewallMult || 1) * 8;
+        st._bossesDefeated = (st._bossesDefeated || 0) + 1;
+        try { if (typeof Game !== 'undefined' && Game.update) Game.update(); } catch (e) {}
+        try { if (typeof Achieve !== 'undefined') Achieve.checkAll(); } catch (e) {}
+    }
+
+    function _win() {
+        if (!_active) return;
+        const stats = _stats, secs = _t;
+        _mode = 'dying';
+        const w = _wall; _wall = null;
+        _stop();
+        if (w) { w.classList.add('shatter'); setTimeout(() => w.remove(), 950); }
+        _pay();
+        K().flash(COL_WIN, 0.6); K().shake(10);
+        K().end();
+        _fx('win', 'stinger:eventWin');
+        const mistakes = stats.denied + stats.wrongStyle + stats.wrongChip;
+        const grade = stats.resets === 0 && mistakes === 0 ? 'S' : stats.resets === 0 && mistakes <= 2 ? 'A' : stats.resets <= 1 ? 'B' : 'C';
+        setTimeout(() => K().result({ title: 'FIREWALL DELETED', col: COL_WIN, grade, rows: [
+            ['mult', 'Income, permanently', 'x8'],
+            ['clock', 'Deleted in', Math.round(secs) + 'S'],
+            ['shield', 'Mistakes', String(mistakes)],
+            ['instability', 'Connection resets', String(stats.resets)],
+        ], ms: 10000 }), _calm() ? 0 : 700);
+        _ticker('FIREWALL ENTITY DELETED: x8 income, permanently. You used the right tools.', COL_WIN, 10000);
+    }
+
+    /* the browser's own DevTools removed the div: that has always been a win */
+    function _devtoolsWin() {
+        if (!_active) return;
+        _wall = null;
+        _stop();
+        _pay();
+        K().flash(COL_WIN, 0.6); K().end();
+        _fx('win', 'stinger:eventWin');
+        K().result({ title: 'FIREWALL DELETED', col: COL_WIN, grade: 'S', rows: [['mult', 'Income, permanently', 'x8'], ['target', 'Method', 'The real DevTools']], ms: 10000 });
+        _ticker('FIREWALL ENTITY DELETED with the real DevTools: x8 income, permanently.', COL_WIN, 10000);
+    }
+
+    function getMult() { return S()._firewallMult || 1; }
+
+    function check() {
+        if (_active || S()._firewallDefeated || !_running()) return;
+        if (window.GlobalEventQueue && GlobalEventQueue.isActive()) return;   // never on top of another crisis
+        const p = (S().prestige && S().prestige.count) || 0;
+        if ((p >= 2 || (S().totalClicks || 0) >= 1000000) && Math.random() < ROLL) spawn();
+    }
+
+    /* a quit: nothing paid, nothing kept; it can come again */
+    function cancel() {
+        if (_active) { _stop(); K().clear(); }
+        const w = _wall || document.getElementById('firewall-boss'); _wall = null;
+        if (w) w.remove();
+        document.querySelectorAll('.fw-insp,.fw-inspect').forEach(e => e.remove());
+    }
+
+    return { spawn, check, getMult, cancel, isActive: () => _active,
+        /* QA: read-only state, and levers for the viewer and the tests */
+        _qa: () => ({ active: _active, mode: _mode, phase: _phase, trace: _trace, open: _open, blocked: _blocked,
+                      rules: _rules.filter(r => r).length, boss: _bossNode, styles: Object.assign({}, _styles), line: _line.slice(),
+                      chips: _chips.map(c => ({ text: c.text, idx: c.idx, used: c.used })), done: _done(), total: _total(),
+                      stats: _stats ? Object.assign({}, _stats, { at: _stats.at.slice() }) : null, mult: getMult(), defeated: !!S()._firewallDefeated }),
+        _qaOpen: () => _openInspector(),
+        _qaPhase: p => { if (!_active) return; if (!_open) _openInspector(); if (p >= 1 && _phase < 1) { _rules.fill(false); _bossNode = true; _toPhase(1); }
+                         if (p >= 2 && _phase < 2) { STYLES.forEach(s => { _styles[s.prop] = s.want; }); _toPhase(2); } },
+        _qaSetTrace: v => { _trace = v; },
+        _qaForget: () => { S()._firewallDefeated = false; },
+    };
+})();
+window.FirewallBoss = FirewallBoss;

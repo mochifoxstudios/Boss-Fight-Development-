@@ -61,6 +61,9 @@ const SHELL = String.raw`<!doctype html>
     <h2>MEMORY LEAK</h2>
     <div class="row"><button id="m-spawn" type="button">Spawn</button><button id="m-p2" type="button">Phase II</button>
       <button id="m-p3" type="button">Phase III</button><button id="m-recall" type="button">Recall</button></div>
+    <h2>FIREWALL ENTITY</h2>
+    <div class="row"><button id="f-spawn" type="button">Spawn</button><button id="f-p2" type="button">Phase II</button>
+      <button id="f-p3" type="button">Phase III</button><button id="f-mult" type="button" disabled>x1</button></div>
     <button id="b-cancel" type="button">Cancel the fight (quit)</button>
     <label><input type="checkbox" id="c-sound" checked> Sound</label>
     <label><input type="checkbox" id="c-calm"> Calm mode</label>
@@ -107,7 +110,7 @@ __BOSSES_JS__
   const fold = f => { $('panel').classList.toggle('folded', f); $('b-fold').setAttribute('aria-expanded', String(!f)); $('b-fold').querySelector('span').textContent = f ? 'SHOW' : 'HIDE'; };
   $('b-fold').onclick = () => fold(!$('panel').classList.contains('folded'));
   /* the panel folds itself away when a fight starts or skips ahead, so it never sits where the boss goes */
-  ['b-spawn', 'b-p2', 'b-p3', 'b-seal', 'm-spawn', 'm-p2', 'm-p3', 'm-recall'].forEach(id => $(id).addEventListener('click', () => fold(true)));
+  ['b-spawn', 'b-p2', 'b-p3', 'b-seal', 'm-spawn', 'm-p2', 'm-p3', 'm-recall', 'f-spawn', 'f-p2', 'f-p3'].forEach(id => $(id).addEventListener('click', () => fold(true)));
   $('b-spawn').onclick = () => { if (!AnomalyBoss.spawn()) _toast('Cannot spawn now (already up?)'); };
   $('b-p2').onclick = () => AnomalyBoss._qaPhase(1);
   $('b-p3').onclick = () => AnomalyBoss._qaPhase(2);
@@ -116,7 +119,11 @@ __BOSSES_JS__
   $('m-p2').onclick = () => MemoryLeakBoss._qaPhase(1);
   $('m-p3').onclick = () => MemoryLeakBoss._qaPhase(2);
   $('m-recall').onclick = () => MemoryLeakBoss._qaRecall();
-  $('b-cancel').onclick = () => { AnomalyBoss.cancel(); MemoryLeakBoss.cancel(); };
+  /* the firewall comes once per save; the viewer forgets that, so it can be fought again */
+  $('f-spawn').onclick = () => { FirewallBoss._qaForget(); if (!FirewallBoss.spawn()) _toast('Cannot spawn now (a fight is already up?)'); };
+  $('f-p2').onclick = () => FirewallBoss._qaPhase(1);
+  $('f-p3').onclick = () => FirewallBoss._qaPhase(2);
+  $('b-cancel').onclick = () => { AnomalyBoss.cancel(); MemoryLeakBoss.cancel(); FirewallBoss.cancel(); };
   $('c-sound').onchange = e => { Settings._prefs.sound = e.target.checked; if (!e.target.checked && window.BossAudio) BossAudio.stop(); };
   $('c-calm').onchange = e => document.body.classList.toggle('accessibility-mode', e.target.checked);
   $('c-protocol').onchange = e => { _protocol = e.target.checked; };
@@ -130,8 +137,12 @@ __BOSSES_JS__
       if (w >= 1) { AnomalyBoss._autoHitAccum -= w; AnomalyBoss.hit(w, 'firewall'); }
     }
     $('energy-v').textContent = format(state.energy);
-    const m = MemoryLeakBoss._qa();
-    if (m.active) {
+    const m = MemoryLeakBoss._qa(), f = FirewallBoss._qa();
+    $('f-mult').textContent = 'x' + f.mult;
+    if (f.active) {
+      $('stats').textContent = 'mode   ' + f.mode + '\nphase  ' + f.phase + '\nsteps  ' + f.done + ' / ' + f.total + '\ntrace  ' + f.trace.toFixed(0) + '%'
+        + '\nrules  ' + f.rules + '\nopen   ' + f.open + '\nresets ' + (f.stats ? f.stats.resets : 0) + '\nmult   x' + f.mult;
+    } else if (m.active) {
       $('stats').textContent = 'mode   ' + m.mode + '\nphase  ' + m.phase + '\nhp     ' + m.hp + ' / ' + m.max + '\nheap   ' + m.heap.toFixed(0) + '%'
         + '\nblocks ' + m.blocks.length + '\ngc     ' + m.gc + ' / ' + m.GC_NEED + '\nfrags  ' + state.fragments + '\ninstab ' + state.instability;
     } else {
