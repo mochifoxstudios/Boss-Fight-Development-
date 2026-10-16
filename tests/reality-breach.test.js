@@ -146,7 +146,7 @@ async function visibleNonAscii(page) {
     await page.evaluate(() => AnomalyBoss._qaSkipStagger());
     check('phase III switches the music', (await page.evaluate(() => BossAudio._qa().song)) === 'rage');
     check('phase III clears the echoes', await waitFor(page, () => AnomalyBoss._qa().echoes === 0 && AnomalyBoss._qa().phase === 2));
-    check('it fires tears', await waitFor(page, () => AnomalyBoss._qa().tears >= 2, null, 4000));
+    check('it fires tears when its shell shuts', await waitFor(page, () => AnomalyBoss._qa().tears >= 2, null, 7000) && (await page.evaluate(() => AnomalyBoss._qa().shell)) === 'shut');
     await sleep(900);
     await shot(page, '06-phase3');
     /* a tear moves every frame, so click the element itself rather than where it was a moment ago */
@@ -156,7 +156,7 @@ async function visibleNonAscii(page) {
     check('a tear that lands steals and heals', await waitFor(page, () => AnomalyBoss._qa().stats.landed >= 1, null, 5000));
     q = await qa(page);
     check('stolen energy goes to the hoard', q.stats.stolen > 0 && q.hoard > 0, q.stats);
-    check('it moves in phase III', await waitFor(page, a => { const r = AnomalyBoss._qa().real; return r && (r.x !== a.x || r.y !== a.y); }, q.real, 4000));
+    check('it moves in phase III', await waitFor(page, a => { const r = AnomalyBoss._qa().real; return r && (r.x !== a.x || r.y !== a.y); }, q.real, 8000));
 
     /* ── the seal: the firewall cannot finish it ── */
     /* set it to 1 HP and finish it in the same task, so a landing tear or a closing shell cannot slip in between */

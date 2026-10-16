@@ -8,16 +8,16 @@ const { build } = require('../tools/viewer');
 const SCALE = 4;
 const PLAYERS = {
     /* a mouse, about 6.5 clicks a second: reads every tell, finds the weak point a third of the time, never strikes an echo */
-    skilled: { every: 150, weak: 0.35, echo: 0.0, look: 0.5, guess: 0.0, early: 0.03, tear: 0.9, sealMiss: 0.1 },
+    skilled: { every: 150, weak: 0.35, echo: 0.0, react: 0.3, look: 0.5, guess: 0.0, early: 0.03, tear: 0.9, sealMiss: 0.1 },
     /* a mouse, sloppy: some echoes, some hits as the shell shuts, half the tears */
-    average: { every: 150, weak: 0.12, echo: 0.2, look: 0.9, guess: 0.3, early: 0.15, tear: 0.55, sealMiss: 0.35 },
+    average: { every: 150, weak: 0.12, echo: 0.2, react: 0.45, look: 0.9, guess: 0.3, early: 0.15, tear: 0.55, sealMiss: 0.35 },
     /* a finger, about 4.5 taps a second, playing well */
-    touch: { every: 220, touch: true, weak: 0.3, echo: 0.05, look: 0.7, guess: 0.1, early: 0.08, tear: 0.8, sealMiss: 0.2 },
+    touch: { every: 220, touch: true, weak: 0.3, echo: 0.05, react: 0.45, look: 0.7, guess: 0.1, early: 0.08, tear: 0.8, sealMiss: 0.2 },
     /* a finger, casual: slower taps, more mistakes */
-    casual: { every: 270, touch: true, weak: 0.15, echo: 0.15, look: 1.2, guess: 0.4, early: 0.15, tear: 0.6, sealMiss: 0.35 },
+    casual: { every: 270, touch: true, weak: 0.15, echo: 0.15, react: 0.7, look: 1.2, guess: 0.4, early: 0.15, tear: 0.6, sealMiss: 0.35 },
 };
 
-/* look: seconds it takes, after the bodies shuffle, to spot the real one again. guess: the chance, while still
+/* react: seconds it takes to find the breach again after it jumps. look: seconds it takes, after the bodies shuffle, to spot the real one again. guess: the chance, while still
    looking, of tapping a body at random instead of waiting */
 
 /* runs in the page: game time goes SCALE times faster (rAF timestamps and timers), and a bot plays */
@@ -50,9 +50,9 @@ function rig(SCALE) {
             const echoes = [...document.querySelectorAll('.rb.echo')];
             /* after a shuffle a person has to find the real one again; meanwhile they wait, or guess */
             const pos = q.real.x + ',' + q.real.y, now = performance.now() / 1000;
-            if (echoes.length && pos !== lastPos) { lastPos = pos; lookUntil = now + P.look / SCALE; }
-            const looking = echoes.length && now < lookUntil;
-            if (looking && Math.random() > P.guess) return;
+            if (pos !== lastPos) { lastPos = pos; lookUntil = now + (echoes.length ? P.look : P.react) / SCALE; }
+            const looking = now < lookUntil;
+            if (looking && (!echoes.length || Math.random() > P.guess)) return;   // after a jump: find it again first
             const all = [document.getElementById('anomaly-boss')].concat(echoes);
             const target = looking ? all[Math.floor(Math.random() * all.length)]
                 : echoes.length && Math.random() < P.echo ? echoes[Math.floor(Math.random() * echoes.length)] : document.getElementById('anomaly-boss');

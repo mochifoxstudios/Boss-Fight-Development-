@@ -30,7 +30,7 @@ Development tools (none of these ship):
 - **The weak point.** A small glowing mark on the rim. A hit on it does 3 damage and sends the mark elsewhere on the rim. It sits still in phase I, drifts in phase II and races in phase III. Anywhere else on the body is a 1-damage graze.
 - **Phase I.** Stands still and teaches the shell.
 - **Phase II: find the real one.** It makes two echoes. Echoes flicker every 0.35-0.8 s and their shards orbit the other way; the real breach is steady, and its eye follows the mouse cursor. Echoes can't be killed: hitting one draws a beam to the real breach and heals it 0.6% (at most once a second per echo). All three bodies shuffle every 5.5 s, and each landing spot is marked a moment before. Its shell stays open longer than in the other phases.
-- **Phase III: enraged.** It jumps around the screen, with each jump marked first, and fires projectiles at the energy counter. One that lands steals 6 s of income and heals it 1.5%. You can shoot them down.
+- **Phase III: enraged.** One rhythm. Each time its shell shuts, it fires two projectiles at the energy counter and jumps somewhere new (the spot is marked first): that's the moment to shoot them down. While the shell is open, it holds still: that's the moment to hit it. A projectile that lands steals 6 s of income and heals it 1.5%.
 - **The seal.** At 0 HP it doesn't die. A marker sweeps a ring with three arcs. Press (click, Space or Enter) as the marker crosses the lit arc, three times within 7 s. After each lock the marker reverses and speeds up. A miss lets it tear free with 15% HP.
 - **Phase lines** sit at 65% and 40% of HP, so phase II is the shortest stretch.
 - **Phase lines hold.** Every phase boundary is a short stagger where it can't be hurt, so one big hit can't skip a phase. Heals never climb back over a line already crossed, so a phase you've won stays won.
@@ -40,14 +40,14 @@ Development tools (none of these ship):
 - **Touch.** Strikes register on the press, not the click, so a tap counts even if the breach moves before the finger lifts, and quick taps are never taken for a zoom. The weak point is half again as big for a finger.
 - **No emoji or glyph characters** appear anywhere a player can see. Icons and art are generated SVG, and the test checks that all visible text is ASCII.
 
-**Balance** (`node tests/balance.js 5`: scripted players at 4x speed; after every shuffle they take time to find the real one again, and some guess meanwhile):
+**Balance** (`node tests/balance.js 5`: scripted players at 4x speed; after every shuffle or jump they take time to find the real one again, and some guess meanwhile):
 
 | Player | Wins | Time left (of 105 s) | Phase I / II / III |
 |---|---|---|---|
-| Mouse, skilled (6.5 clicks/s) | 5 of 5 | about 80 s | 6 / 7 / 11 s |
-| Mouse, sloppy (1 in 5 clicks on an echo, hits the closing shell, misses half the projectiles) | 5 of 5 | about 60 s | 10 / 14 / 17 s |
-| Touch, good (4.5 taps/s) | 5 of 5 | about 60 s | 11 / 12 / 19 s |
-| Touch, casual (3.7 taps/s, slow to spot the real one, more mistakes) | 4-5 of 5 | 2 to 46 s | 16 / 21-26 / 32-43 s |
+| Mouse, skilled (6.5 clicks/s) | 5 of 5 | about 85 s | 8 / 4 / 9 s |
+| Mouse, sloppy (1 in 5 clicks on an echo, hits the closing shell, misses half the projectiles) | 5 of 5 | about 65 s | 11 / 10 / 13 s |
+| Touch, good (4.5 taps/s) | 5 of 5 | about 70 s | 11 / 9 / 15 s |
+| Touch, casual (3.7 taps/s, slow to spot the real one, slow to re-find it after a jump, more mistakes) | 5 of 5 | about 38 s | 19 / 20 / 27 s |
 
 ### Integration into the game
 

@@ -513,8 +513,8 @@ window.BossAudio = BossAudio;
      Phase II    - IT SPLITS. Two echoes. The echoes flicker now and then and their shards orbit the other way; the
                    real breach is steady and its eye follows your cursor. An echo cannot be killed: strike one and a beam shows it feeding the
                    real one (+2). They shuffle every 5.5 s, and each landing spot is marked a moment before.
-     Phase III   - ENRAGED. It blinks around the screen (each jump is marked first) and fires tears at your energy
-                   counter. A tear that lands steals 6 s of income into its hoard and heals it. Shoot them down.
+     Phase III   - ENRAGED. One rhythm: each time its shell shuts it fires two tears at your energy counter and jumps
+                   somewhere new (the spot is marked first); while the shell is open it holds still. A tear that lands steals 6 s of income into its hoard and heals it. Shoot them down.
      The seal    - At zero it does not die. It collapses, and a marker sweeps a ring with three lit arcs. Press as
                    the marker crosses the lit arc, three times, in 7 s. A miss and it tears free with 15% back.
                    Only a person can seal it: the Auto-Breach Firewall deals damage but cannot seal.
@@ -537,18 +537,18 @@ const AnomalyBoss = (() => {
     const SHELL = [                                          // seconds open / warning flicker / shut, by phase
         { open: 3.4, tell: 0.75, shut: 1.5 },
         { open: 3.2, tell: 0.60, shut: 1.3 },   // phase II gives more time open: finding the real one is the work
-        { open: 2.0, tell: 0.50, shut: 1.7 },
+        { open: 3.0, tell: 0.55, shut: 1.5 },   // phase III: while shut it jumps and fires; while open it holds still
     ];
     const FIRST_OPEN_S = 4.5;                               // the very first window is generous
     const WEAK_R = 74, WEAK_HIT = 24, WEAK_HIT_TOUCH = 36, WEAK_DMG = 3;   // the weak point: radius on the rim, hit radius for a mouse / a finger (art units), damage
-    const WEAK_DRIFT = [0, 34, 70];                         // how fast it slides round the rim, degrees a second, by phase
+    const WEAK_DRIFT = [0, 34, 45];                         // how fast it slides round the rim, degrees a second, by phase
     const STAGGER_S = 1.1;
     const REFLECT_HEAL = 0.012, REFLECT_STEAL_S = 2;        // a hit on a shut shell: heals 1.2% of max
     const ECHOES = 2, ECHO_HEAL = 0.006, ECHO_COOL_S = 1.0, SHUFFLE_S = 5.5;   // phase II (one echo heals at most once a second)
     const FLICK_GAP = [0.35, 0.8], FLICK_S = 0.2;           // an echo flickers every 0.35-0.8 s, for 0.2 s
     const LINE_II = 0.65, LINE_III = 0.40;                  // the phase lines, as shares of HP: phase II is the shortest stretch
-    const MOVE_S = 2.2, TELL_S = 0.45;                      // phase III jumps, and the mark before any jump
-    const TEAR_EVERY_S = 3.2, TEAR_FLIGHT_S = 3.0, TEAR_HEAL = 0.015, TEAR_STEAL_S = 6;
+    const TELL_S = 0.45;                                    // the mark before any jump or shuffle
+    const TEAR_FLIGHT_S = 2.6, TEAR_HEAL = 0.015, TEAR_STEAL_S = 6;   // phase III fires two tears each time its shell shuts
     const SEAL_LOCKS = 3, SEAL_WINDOW_S = 7, SEAL_REV_S = 0.85, SEAL_SPEEDUP = 1.18, SEAL_FAIL_HP = 0.15;
     const HIT = [500, 0.005, 2], BOUNTY = [50000, 0.40, 900], CLEAN_MULT = 1.5;
 
@@ -556,7 +556,7 @@ const AnomalyBoss = (() => {
     let _active = false, _ready = false, _mode = 'off';     // off | intro | fight | stagger | seal | dying
     let _hp = 0, _max = 0, _phase = 0, _left = 0, _t = 0;
     let _shell = 'open', _shellUntil = 0, _staggerUntil = 0, _afterStagger = null;
-    let _moveAt = 0, _shuffleAt = 0, _tearAt = 0;
+    let _shuffleAt = 0;
     let _raf = 0, _lastTs = 0, _px = -1, _py = -1;
     let _real = null, _echoes = [], _tears = [], _seal = null;
     let _stats = null, _hints = null, _uid = 0;
@@ -854,8 +854,6 @@ const AnomalyBoss = (() => {
             _left -= dt;
             _stepShell();
             if (_phase === 1 && _t >= _shuffleAt) _shuffle();
-            if (_phase === 2 && _t >= _moveAt) _jump();
-            if (_phase === 2 && _t >= _tearAt) _volley();
             if (_left <= 0) { _escape(); return; }
         }
         _stepTears(dt);
@@ -879,6 +877,8 @@ const AnomalyBoss = (() => {
         } else if (_shell === 'tell') {
             _shell = 'shut'; _shellUntil = _t + c.shut;
             _fx('shut');
+            /* phase III keeps one rhythm: shut, it fires and jumps (shoot the tears); open, it holds still (hit it) */
+            if (_phase === 2) { _volley(); _jump(); }
         } else {
             _shell = 'open'; _shellUntil = _t + c.open * (0.85 + Math.random() * 0.3);   // never quite the same rhythm
         }
@@ -1028,7 +1028,7 @@ const AnomalyBoss = (() => {
         _stagger(() => {
             _shellUntil = _t + SHELL[p].open;
             if (p === 1) { _spawnEchoes(); _shuffleAt = _t; _hintAt('split', 'ECHOES FLICKER AND HEAL IT. HIT THE STEADY ONE.', 'eye', 4200); }
-            if (p === 2) { _clearEchoes(); _moveAt = _t + 0.6; _tearAt = _t + 1.2; }
+            if (p === 2) _clearEchoes();
         });
     }
 
@@ -1063,7 +1063,6 @@ const AnomalyBoss = (() => {
     }
 
     function _jump() {
-        _moveAt = _t + MOVE_S * (0.8 + Math.random() * 0.4) + TELL_S;
         const p = _spot([{ x: _real.x, y: _real.y }], _size() * 1.4);
         _ghost(p.x, p.y);
         _fx('jump');
@@ -1087,7 +1086,6 @@ const AnomalyBoss = (() => {
 
     function _volley() {
         const n = 2;
-        _tearAt = _t + TEAR_EVERY_S;
         for (let i = 0; i < n; i++) _tear(i, n);
         _fx('tearLaunch');
         _hintAt('tear', 'TEARS STEAL YOUR ENERGY. SHOOT THEM DOWN.', 'energy', 2800);
@@ -1259,7 +1257,7 @@ const AnomalyBoss = (() => {
         _fx('sealMiss', 'sfx:breach');
         _music('rage');
         _mode = 'fight';
-        _stagger(() => { _moveAt = _t + 0.3; _tearAt = _t + 0.8; _shellUntil = _t + SHELL[2].open; });
+        _stagger(() => { _shellUntil = _t + SHELL[2].open; });
     }
 
     /* ── endings ────────────────────────────────────────────────────────── */
