@@ -75,9 +75,9 @@ A cracked RAM stick hangs under the boss bar and drips allocated memory blocks o
 - **The garbage collector.** Every block you free by hand charges it. At 16 it lights up: press it (or G) to free every block on screen at once and drop the heap 20%. It replaces the old typed command, which doesn't work on touch. Typing `EXECUTE GARBAGE_COLLECTION` still works as a desktop shortcut through `tryCommand`.
 - **Phase I: allocation.** Plain 16 KB and 32 KB blocks, a little under two a second, with a burst of two every eighth drip. It teaches the heap.
 - **Phase II: pointers.** Some blocks arrive as a numbered chain of three, joined by dashed lines. Free them 1, 2, 3. Out of order is a **segfault**: nothing is freed and the heap jumps 5%. A whole chain in order deals 3 bonus damage and drops the heap 6%.
-- **Phase III: fragmentation.** The drip quickens, and big 64 KB blocks split into two 16 KB blocks when freed.
-- **Recall.** At 0 integrity it doesn't die. Its blocks are pulled back into the stick, and a 3 x 3 grid of memory cells lights four of them in turn, each with its own tone. Tap them back in the same order (or type their numbers 1 to 9) within 7 s. A first wrong cell plays the sequence again; a second, and it reallocates with 15% integrity and phase III resumes.
-- **Phase lines** sit at 65% and 35% of integrity. Each is a stagger, and freeing never climbs back over a line already crossed.
+- **Phase III: fragmentation.** The shortest stretch. One block in five is a big 64 KB block that splits into two 16 KB blocks when freed.
+- **Recall.** At 0 integrity it doesn't die. Its blocks are pulled back into the stick, and a 3 x 3 grid of memory cells lights three of them in turn, slowly, each with its own tone. Tap them back in the same order (or type their numbers 1 to 9) within 10 s. A wrong cell, or running out of time, plays the sequence again; only the third miss reallocates it with 15% integrity and phase III resumes.
+- **Phase lines** sit at 65% and 25% of integrity. Each is a stagger that also clears 15% of the heap, and freeing never climbs back over a line already crossed.
 - **Rewards.** Unchanged in kind: 120-480 s of income (`_birdPay`) and 3 fragments. A clean fight (no segfault, no wrong cell, heap never past 80%) pays the bounty x1.5 and 5 fragments. The result card gives a grade. Out of memory: instability +25%, as before.
 - **When it comes.** Unchanged: prestige 2 or more, instability over 75%, 45 minutes since the last one, then a 1% roll every 30 s.
 - **Soundtrack.** Its own songs in E minor: chiptune pulses for allocation (118 BPM), a driving arpeggio for pointers (128), a distorted bass for fragmentation (142), and a quiet pulse for the recall, where each cell has its own note. Sounds for every drip, free, segfault, finished chain and collection, and a double beep while the heap is over 80%.
@@ -86,9 +86,8 @@ A cracked RAM stick hangs under the boss bar and drips allocated memory blocks o
 
 | Player | Wins | Peak heap | Phase I / II / III |
 |---|---|---|---|
-| Mouse, skilled (6.5 clicks/s) | 5 of 5 | about 13% | 23 / 9 / 9 s |
-| Touch, casual (3.7 taps/s) | 5 of 5 | about 17% | 24 / 10 / 11 s |
-| Touch, a person on a phone (2.5 taps/s, a second to notice new blocks, slow to use the collector, a chain mistake in four) | 5 of 5 | about 23% | 24 / 13 / 11 s |
+| Mouse, skilled (6.5 clicks/s) | 3 of 3 | about 14% | 24 / 12 / 8 s |
+| Touch, a person on a phone (2.5 taps/s, a second to notice new blocks, slow to use the collector, a chain mistake in four) | 6 of 6 | about 23% | 25 / 17 / 9 s |
 
 ### Integration into the game
 

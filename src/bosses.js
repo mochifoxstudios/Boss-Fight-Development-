@@ -1487,8 +1487,8 @@ window.AnomalyBoss = AnomalyBoss;
                    is a SEGFAULT: nothing is freed and the heap jumps. A whole chain in order deals bonus damage.
      Phase III   - FRAGMENTATION. The drip quickens, and big 64 KB blocks split into two 16 KB blocks when freed.
      Recall      - At zero integrity it does not die. Its blocks are compacted away and a 3 x 3 grid of memory cells
-                   lights four of them in turn, each with its own tone. Tap them back in the same order. A first wrong
-                   cell plays the sequence again; a second, and it reallocates: 15% back, and phase III resumes.
+                   lights three of them in turn, each with its own tone. Tap them back in the same order. A wrong cell
+                   (or running out of time) plays the sequence again; the third time, it reallocates: 15% back.
    Every boundary is a stagger, and freeing never climbs back over a line already crossed (as the Breach).
 
    THE PAY (unchanged in kind): 120-480 s of income (_birdPay) and 3 fragments; a clean fight (no segfault, no wrong
@@ -1503,16 +1503,17 @@ const MemoryLeakBoss = (() => {
     const CMD = 'EXECUTE GARBAGE_COLLECTION';
     const GAP_MS = 45 * 60000, ROLL = 0.01, CHECK_MS = 30000;                 // when it may come (unchanged)
     const HP_MIN = 100, HP_SPREAD = 16;
-    const LINE_II = 0.65, LINE_III = 0.35;
+    const LINE_II = 0.65, LINE_III = 0.25;                  // phase III is the shortest stretch: the end should not be a wall
     const MAX_BLOCKS = 14;
-    const SPAWN_S = [0.65, 0.58, 0.5];                     // a new allocation every ..., by phase
+    const SPAWN_S = [0.65, 0.6, 0.6];                      // a new allocation every ..., by phase
     const BURST_EVERY = 8, BURST = 2;                      // every eighth drip is a burst of two
-    const HEAP_START = 8, HEAP_BASE = [1.3, 1.6, 1.9], HEAP_PER_BLOCK = 0.35, HEAP_FREE = 0.8, HEAP_WARN = 80;
+    const HEAP_START = 8, HEAP_BASE = [1.3, 1.5, 1.5], HEAP_PER_BLOCK = 0.35, HEAP_FREE = 0.8, HEAP_WARN = 80;
     const CHAIN_EVERY = 3, CHAIN_LEN = 3, CHAIN_BONUS = 3, CHAIN_HEAP = 6, SEGFAULT_HEAP = 5;
-    const BIG_EVERY = 3;                                   // phase III: one allocation in three is a 64 KB block that splits
+    const BIG_EVERY = 5;                                   // phase III: one allocation in five is a 64 KB block that splits
+    const PHASE_RELIEF = 15;                               // each phase line clears this much heap
     const GC_NEED = 16, GC_BONUS = 0, GC_HEAP = 20;        // frees to charge it; extra damage per block it frees; extra heap it clears
     const STAGGER_S = 1.1;
-    const RECALL_LEN = 4, RECALL_STEP_S = 0.6, RECALL_WINDOW_S = 7, RECALL_FAIL_HP = 0.15;
+    const RECALL_LEN = 3, RECALL_STEP_S = 0.8, RECALL_WINDOW_S = 10, RECALL_TRIES = 3, RECALL_FAIL_HP = 0.15;
     const BOUNTY = [1e6, 0.20, 480], CLEAN_MULT = 1.5;
 
     /* ── state ──────────────────────────────────────────────────────────── */
@@ -1911,6 +1912,7 @@ const MemoryLeakBoss = (() => {
     function _enterPhase(p) {
         _phase = p;
         _stats.at[p] = Math.round(_t);
+        _heap = Math.max(0, _heap - PHASE_RELIEF);           // a phase won clears some of the heap
         const col = _col();
         if (_leak) _leak.style.setProperty('--ml-col', col);
         _blocks.forEach(b => { if (!b.chain) b.el.style.setProperty('--ml-col', col); });
@@ -1956,7 +1958,7 @@ const MemoryLeakBoss = (() => {
         const seq = [];
         while (seq.length < RECALL_LEN) { const n = Math.floor(Math.random() * 9); if (!seq.includes(n)) seq.push(n); }
         const step = RECALL_STEP_S * (_calm() ? 1.3 : 1);
-        _recall = { el, cells, seq, got: 0, watching: true, showAt: _t + 0.9, step, shown: -1, until: Infinity, retry: true };
+        _recall = { el, cells, seq, got: 0, watching: true, showAt: _t + 0.9, step, shown: -1, until: Infinity, tries: RECALL_TRIES };
         _ticker('The leak is compacting. Remember the cells.', COL_RECALL, 4000);
         K().hint('WATCH THE CELLS, THEN TAP THEM IN THE SAME ORDER', innerWidth / 2, innerHeight / 2 + 190, 3400, COL_RECALL, 'eye');
     }
@@ -1978,7 +1980,11 @@ const MemoryLeakBoss = (() => {
             }
             return;
         }
-        if (_t >= r.until) _recallFail('TOO SLOW');
+        if (_t >= r.until) {
+            if (--r.tries > 0) { r.got = 0; r.watching = true; r.shown = -1; r.showAt = _t + 0.6; r.until = Infinity; r.el.classList.add('watch');
+                                 K().pop(innerWidth / 2, innerHeight / 2 - 190, 'TOO SLOW  WATCH AGAIN  (' + r.tries + ' LEFT)', 'reflect'); }
+            else _recallFail('TOO SLOW');
+        }
     }
 
     function _cellPress(i) {
@@ -1991,13 +1997,13 @@ const MemoryLeakBoss = (() => {
             setTimeout(() => c.classList.remove('good'), 220);
             _fx('cell', null, i);
             if (r.got >= RECALL_LEN) { _fx('lock', null, 2); _win(); }
-        } else if (r.retry) {               // one second look: the sequence plays again
-            r.retry = false; r.got = 0; r.watching = true; r.shown = -1; r.showAt = _t + 0.9; r.until = Infinity;
+        } else if (--r.tries > 0) {          // another look: the sequence plays again
+            r.got = 0; r.watching = true; r.shown = -1; r.showAt = _t + 0.9; r.until = Infinity;
             r.el.classList.add('watch');
             c.classList.add('wrong'); setTimeout(() => c.classList.remove('wrong'), 400);
             _stats.wrong++;
             _fx('segfault');
-            K().pop(innerWidth / 2, innerHeight / 2 - 190, 'WRONG CELL  WATCH AGAIN', 'reflect');
+            K().pop(innerWidth / 2, innerHeight / 2 - 190, 'WRONG CELL  WATCH AGAIN  (' + r.tries + ' LEFT)', 'reflect');
         } else {
             c.classList.add('wrong');
             _recallFail('WRONG CELL');

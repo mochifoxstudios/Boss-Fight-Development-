@@ -162,8 +162,12 @@ async function visibleNonAscii(page) {
     check('then it is your turn again', await waitFor(page, () => !MemoryLeakBoss._qa().recall.watching, null, 6000));
     c = await cellPt(wrong);
     await page.mouse.click(c.x, c.y);
+    check('a second wrong cell plays it once more', (await qa(page)).recall && (await qa(page)).recall.watching);
+    await waitFor(page, () => !MemoryLeakBoss._qa().recall.watching, null, 6000);
+    c = await cellPt(wrong);
+    await page.mouse.click(c.x, c.y);
     q = await qa(page);
-    check('a second wrong cell: it reallocates with 15%', q.mode !== 'recall' && q.hp === Math.max(1, Math.round(q.max * 0.15)) && q.stats.wrong === 2, q.mode);
+    check('a third wrong cell: it reallocates with 15%', q.mode !== 'recall' && q.hp === Math.max(1, Math.round(q.max * 0.15)) && q.stats.wrong === 3, q.mode);
 
     /* ── the recall: done right ── */
     await page.evaluate(() => MemoryLeakBoss._qaRecall());
