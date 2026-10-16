@@ -8,7 +8,7 @@
      1. BossKit           the stage every boss shares (intro, bar, pops, hints, flashes, result card, SVG icons)
         BossAudio         the bosses' soundtrack and sound effects, synthesized live (Web Audio, no audio files)
      2. AnomalyBoss       the Reality Breach (replaces the AnomalyBoss block in game.js)
-     3. MemoryLeakBoss    the Memory Leak     (next: replaces the block in systems3.js)
+     3. MemoryLeakBoss    the Memory Leak     (replaces the block in systems3.js)
      4. FirewallBoss      the Firewall Entity (next: replaces the block in game.js)
 
    Rule for this file: no emoji and no glyph characters anywhere a player can see. Icons and art are generated SVG.
@@ -67,6 +67,10 @@ const BossKit = (() => {
 .bk-bar-fill{background:linear-gradient(90deg,color-mix(in srgb,var(--bk-col) 60%,#000),var(--bk-col));transition:transform .08s linear;}
 .bk-bar-fill::after{content:"";position:absolute;inset:0;opacity:.25;background:repeating-linear-gradient(90deg,transparent 0 9px,#000 9px 10px);}
 .bk-bar-track.heal .bk-bar-fill{animation:bkHeal .45s ease}
+.bk-gauge{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10px;letter-spacing:2px;text-shadow:0 1px 2px #000}
+.bk-gauge-track{position:relative;flex:1;height:7px;background:rgba(10,4,14,.82);border:1px solid rgba(255,255,255,.25);overflow:hidden}
+.bk-gauge-fill{position:absolute;inset:0;transform-origin:left center;background:var(--bk-g,#fff);transition:transform .12s linear,background .3s}
+.bk-gauge.warn .bk-gauge-fill{animation:bkBlink .45s steps(2) infinite}
 .bk-bar-mark{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:rgba(255,255,255,.75);z-index:2}
 
 .bk-pop{position:fixed;left:0;top:0;z-index:9650;pointer-events:none;font-family:var(--bk-font,'Courier New',ui-monospace,monospace);
@@ -192,6 +196,20 @@ body.bk-shake{animation:bkShake .18s steps(2) 1}
     function heal() { const t = _q('.bk-bar-track'); if (t) { t.classList.remove('heal'); void t.offsetWidth; t.classList.add('heal'); } }
     function phase(t) { const e = _q('.bk-bar-phase'); if (e && e.textContent !== t) e.textContent = t; }
     function right(t, low) { const e = _q('.bk-bar-right'); if (!e) return; if (e.textContent !== t) e.textContent = t; e.classList.toggle('low', !!low && !calm()); }
+    /* a second, slimmer meter under the bar: what the boss is filling (a heap, a timer) */
+    function gauge(label, f, col, warn) {
+        if (!_bar) return;
+        let g = _q('.bk-gauge');
+        if (!g) {
+            g = _el('bk-gauge'); g.innerHTML = '<span></span><div class="bk-gauge-track"><div class="bk-gauge-fill"></div></div>';
+            _bar.insertBefore(g, _q('.bk-bar-sub'));
+        }
+        const l = g.querySelector('span'); if (l.textContent !== label) l.textContent = label;
+        const fill = g.querySelector('.bk-gauge-fill');
+        fill.style.transform = 'scaleX(' + Math.max(0, Math.min(1, f)).toFixed(3) + ')';
+        if (col) fill.style.setProperty('--bk-g', col);
+        g.classList.toggle('warn', !!warn && !calm());
+    }
     function sub(t) { const e = _q('.bk-bar-sub'); if (e && e.textContent !== t) e.textContent = t; }
     function colour(c) { [_bar, _dim].forEach(e => e && e.style.setProperty('--bk-col', c)); }
 
@@ -273,7 +291,7 @@ body.bk-shake{animation:bkShake .18s steps(2) 1}
         document.body.classList.remove('bk-shake');
     }
 
-    return { intro, bar, hp, heal, phase, right, sub, colour, pop, hint, flash, shake, result, end, clear, calm, icon };
+    return { intro, bar, hp, heal, phase, right, sub, gauge, colour, pop, hint, flash, shake, result, end, clear, calm, icon };
 })();
 window.BossKit = BossKit;
 
@@ -417,6 +435,40 @@ const BossAudio = (() => {
             if (i % 2 === 0) lead(t, 74 + R[b] + ARP[(i >> 1) % 8], d * 1.2, 0.7);
             if (Math.random() < 0.08) glitch(t, 1.2);
         } },
+        /* THE MEMORY LEAK, in E minor: chiptune pulses and drips */
+        alloc: { bpm: 118, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15, r = [0, 0, -4, -2][b];
+            if (i === 0 || i === 7 || i === 10) kick(t, 0.9);
+            if (i % 4 === 2) hat(t, 0.5);
+            if (i % 2 === 0) bass(t, 40 + r + (i === 12 ? 7 : 0), d * 1.4, 0.8);
+            if (i === 0) pad(t, [52 + r, 55 + r, 59 + r], d * 16, 0.8);
+            if ([0, 3, 6, 9, 12].includes(i)) lead(t, 76 + r + [0, 7, 12, 7, 3][[0, 3, 6, 9, 12].indexOf(i)], d * 0.8, 0.55);
+        } },
+        pointers: { bpm: 128, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15, r = [0, 0, -4, -2][b];
+            if (i % 4 === 0) kick(t, 1);
+            if (i === 4 || i === 12) snare(t, 0.85);
+            hat(t, i % 2 ? 0.45 : 0.8);
+            bass(t, 40 + r + (i % 8 === 6 ? 12 : 0), d * 0.9, 0.85);
+            if (i === 0) pad(t, [52 + r, 55 + r, 59 + r], d * 16, 0.7);
+            lead(t, 64 + r + [0, 3, 7, 12, 15, 12, 7, 3][i % 8], d * 0.8, i % 4 === 0 ? 0.7 : 0.45);
+        } },
+        frag: { bpm: 142, play(s, t, d) {
+            const b = (s >> 4) & 3, i = s & 15, r = [0, 0, -4, -2][b];
+            if (i % 4 === 0 || i === 14) kick(t, 1.1);
+            if (i === 4 || i === 12 || (b === 3 && i > 12)) snare(t, 1);
+            hat(t, i % 2 ? 0.6 : 1, i % 8 === 6);
+            bass(t, 40 + r + (i % 4 === 3 ? 12 : 0), d * 0.8, 1, true);
+            if (i === 0) pad(t, [64 + r, 67 + r, 71 + r], d * 16, 0.9);
+            if (i % 2 === 0) lead(t, 76 + r + [0, 12, 7, 15][(i >> 1) % 4], d * 0.9, 0.6);
+            if (Math.random() < 0.1) glitch(t, 1);
+        } },
+        recall: { bpm: 100, play(s, t, d) {
+            const i = s & 15;
+            if (i === 0 || i === 8) kick(t, 0.6);
+            if ((s & 31) === 0) pad(t, [40, 52, 59], d * 32, 1.2);
+            if (i === 12) hat(t, 0.25, true);
+        } },
         /* the seal: the music drops away to a heartbeat under a drone */
         seal: { bpm: 140, play(s, t, d) {
             const i = s & 15;
@@ -479,6 +531,15 @@ const BossAudio = (() => {
         sealTick(t) { _osc('sine', 2200, t, 0.03, 0.12, sfxBus, 0.001); },
         lock(t, n) { const b = 880 * Math.pow(2, (n || 0) * 4 / 12); [1, 2.01, 3].forEach((k, i) => _osc('sine', b * k, t, 0.9 - i * 0.25, 0.22 / (i + 1), sfxBus, 0.002)); },
         sealMiss(t) { [146.8, 155.6, 207.7].forEach(f => _osc('sawtooth', f, t, 0.5, 0.1, sfxBus, 0.003, f * 0.8)); _noise(t, 0.3, 0.3, sfxBus, 'lowpass', 900); },
+        alloc(t) { _osc('sine', 1400, t, 0.09, 0.07, sfxBus, 0.002, 500); _osc('sine', 700, t + 0.05, 0.06, 0.05, sfxBus, 0.002, 350); },
+        free(t, kb) { const f = kb >= 64 ? 420 : kb >= 32 ? 620 : 860; _osc('square', f, t, 0.07, 0.14, sfxBus, 0.002, f * 1.6); _noise(t, 0.04, 0.12, sfxBus, 'highpass', 3000); },
+        segfault(t) { _osc('sawtooth', 110, t, 0.3, 0.18, sfxBus, 0.002, 60); _osc('square', 1760, t, 0.05, 0.08, sfxBus, 0.001); _noise(t, 0.2, 0.2, sfxBus, 'bandpass', 900, 300, 2); },
+        chainDone(t) { [72, 76, 79].forEach((m, i) => _osc('square', hz(m), t + i * 0.06, 0.18, 0.08, sfxBus, 0.002)); },
+        gcReady(t) { [79, 84].forEach((m, i) => _osc('sine', hz(m), t + i * 0.09, 0.3, 0.15, sfxBus, 0.003)); },
+        gc(t) { _noise(t, 0.7, 0.35, sfxBus, 'lowpass', 200, 8000); _osc('sine', 110, t, 0.8, 0.4, sfxBus, 0.01, 440);
+                [64, 67, 71, 76].forEach((m, i) => _osc('triangle', hz(m), t + 0.15 + i * 0.05, 0.4, 0.1, sfxBus, 0.003)); },
+        heapWarn(t) { _osc('square', 988, t, 0.09, 0.07, sfxBus, 0.002); _osc('square', 988, t + 0.16, 0.09, 0.07, sfxBus, 0.002); },
+        cell(t, i) { const m = [64, 67, 69, 71, 74, 76, 79, 81, 83][i || 0]; _osc('triangle', hz(m), t, 0.35, 0.22, sfxBus, 0.004); _osc('sine', hz(m + 12), t, 0.2, 0.06, sfxBus, 0.004); },
         win(t) { [62, 66, 69, 74, 78].forEach((m, i) => { _osc('sine', hz(m), t + i * 0.09, 1.2, 0.2, sfxBus, 0.003); _osc('triangle', hz(m + 12), t + i * 0.09, 0.5, 0.06, sfxBus, 0.003); });
                  _osc('sine', 73.4, t, 1.6, 0.4, sfxBus, 0.01); },
         fail(t) { _osc('sawtooth', 294, t, 1.3, 0.16, sfxBus, 0.01, 73); _osc('sawtooth', 311, t, 1.3, 0.12, sfxBus, 0.01, 78); _noise(t, 1.2, 0.2, sfxBus, 'lowpass', 2000, 100); },
@@ -1407,3 +1468,639 @@ const AnomalyBoss = (() => {
     };
 })();
 window.AnomalyBoss = AnomalyBoss;
+
+
+/* ── 3. THE MEMORY LEAK ─────────────────────────────────────────────────────
+
+   Replaces the MemoryLeakBoss block in systems3.js (see README: Integration). Same global name and the surface the
+   game uses: tick() (game.js, every 30 s it rolls), cancel() (the quit sweep and the run reset), isActive() (music.js).
+   tryCommand(text) still accepts EXECUTE GARBAGE_COLLECTION, as a keyboard shortcut for the collector. It no longer
+   needs #memory-leak-terminal from index.html: everything it shows, it makes.
+
+   THE FIGHT. A broken RAM stick hangs at the top of the screen and drips allocated blocks onto it. Every block left
+   standing fills your HEAP faster; at 100% it takes the simulation. Free a block by tapping it: the leak loses
+   integrity and the heap drops.
+     Everywhere  - THE COLLECTOR. Each block you free by hand charges the garbage collector. When it is full, its
+                   button lights: press it (or G) and every block on screen is freed at once, with bonus damage.
+     Phase I     - ALLOCATION. Plain blocks, a steady drip. It teaches the heap.
+     Phase II    - POINTERS. Some blocks arrive as a numbered chain, linked by lines. Free them 1, 2, 3. Out of order
+                   is a SEGFAULT: nothing is freed and the heap jumps. A whole chain in order deals bonus damage.
+     Phase III   - FRAGMENTATION. The drip quickens, and big 64 KB blocks split into two 16 KB blocks when freed.
+     Recall      - At zero integrity it does not die. Its blocks are compacted away and a 3 x 3 grid of memory cells
+                   lights four of them in turn, each with its own tone. Tap them back in the same order. A first wrong
+                   cell plays the sequence again; a second, and it reallocates: 15% back, and phase III resumes.
+   Every boundary is a stagger, and freeing never climbs back over a line already crossed (as the Breach).
+
+   THE PAY (unchanged in kind): 120-480 s of income (_birdPay) and 3 fragments; a clean fight (no segfault, no wrong
+   cell, heap never past 80%) pays the bounty x1.5 and 5 fragments. Out of memory: instability +25, as before. */
+
+const MemoryLeakBoss = (() => {
+    'use strict';
+    const K = () => window.BossKit;
+
+    /* ── tuning ─────────────────────────────────────────────────────────── */
+    const COL = '#ff7a1a', COL_II = '#ffc21a', COL_III = '#ff3b3b', COL_RECALL = '#5cf2ff', COL_WIN = '#44ff88';
+    const CMD = 'EXECUTE GARBAGE_COLLECTION';
+    const GAP_MS = 45 * 60000, ROLL = 0.01, CHECK_MS = 30000;                 // when it may come (unchanged)
+    const HP_MIN = 130, HP_SPREAD = 20;
+    const LINE_II = 0.65, LINE_III = 0.35;
+    const MAX_BLOCKS = 14;
+    const SPAWN_S = [0.32, 0.29, 0.26];                   // a new allocation every ..., by phase
+    const BURST_EVERY = 6, BURST = 3;                      // every sixth drip is a burst of three
+    const HEAP_START = 8, HEAP_BASE = [2.2, 2.6, 3.0], HEAP_PER_BLOCK = 0.45, HEAP_FREE = 0.4, HEAP_WARN = 80;
+    const CHAIN_EVERY = 3, CHAIN_LEN = 3, CHAIN_BONUS = 3, CHAIN_HEAP = 6, SEGFAULT_HEAP = 5;
+    const BIG_EVERY = 3;                                   // phase III: one allocation in three is a 64 KB block that splits
+    const GC_NEED = 24, GC_BONUS = 0, GC_HEAP = 20;        // frees to charge it; extra damage per block it frees; extra heap it clears
+    const STAGGER_S = 1.1;
+    const RECALL_LEN = 4, RECALL_STEP_S = 0.6, RECALL_WINDOW_S = 7, RECALL_FAIL_HP = 0.15;
+    const BOUNTY = [1e6, 0.20, 480], CLEAN_MULT = 1.5;
+
+    /* ── state ──────────────────────────────────────────────────────────── */
+    let _active = false, _ready = false, _mode = 'off';      // off | intro | fight | stagger | recall | dying
+    let _hp = 0, _max = 0, _phase = 0, _heap = 0, _peak = 0, _t = 0, _gc = 0, _qaHold = false;
+    let _spawnAt = 0, _spawned = 0, _staggerUntil = 0, _afterStagger = null, _warnAt = 0;
+    let _raf = 0, _lastTs = 0, _lastCheck = 0, _nextAllowed = Date.now() + GAP_MS;
+    let _leak = null, _links = null, _gcBtn = null, _recall = null, _hints = null, _stats = null, _chainId = 0;
+    const _blocks = new Set();
+
+    /* ── game hooks ─────────────────────────────────────────────────────── */
+    const S = () => (typeof state !== 'undefined' ? state : {});
+    const _running = () => (typeof isRunning !== 'undefined' ? !!isRunning : true);
+    const _fmt = n => (typeof format === 'function' ? format(n) : String(Math.round(n)));
+    const _pay = (a, b, c) => (typeof _birdPay === 'function' ? _birdPay(a, b, c) : window._qaBirdPay ? window._qaBirdPay(a, b, c) : a);
+    const _income = () => Math.max(0, +S()._realEPS || +S().eps || 0);
+    const _ticker = (t, c, ms) => { try { if (window.Ticker) Ticker.show(t, c, ms); else if (typeof showNotif === 'function') showNotif(t, c, ms); } catch (e) {} };
+    const _calm = () => !!(K() && K().calm());
+    const _fx = (name, fallback, arg) => {
+        try { if (window.BossAudio && BossAudio.sfx(name, arg)) return; } catch (e) {}
+        try { if (fallback === 'click') { if (window.Sounds && Sounds.click) Sounds.click(); } else if (fallback && window.GameSound) GameSound.play(fallback); } catch (e) {}
+    };
+    const _music = name => { try { if (window.BossAudio) name ? BossAudio.song(name) : BossAudio.stop(); } catch (e) {} };
+    function _paused() {
+        const b = document.body.classList;
+        return !_running() || b.contains('panel-open') || b.contains('crash-freeze') || !!window._loreActive
+            || !!(window.CognitiveDampener && CognitiveDampener.isActive && CognitiveDampener.isActive());
+    }
+    const _col = () => _phase === 2 ? COL_III : _phase === 1 ? COL_II : COL;
+    const _line = share => Math.ceil(_max * share);
+    const _floor = () => _phase === 0 ? _line(LINE_II) : _phase === 1 ? _line(LINE_III) : 0;
+
+    /* ── art ────────────────────────────────────────────────────────────── */
+    const CSS = `
+.ml-leak{position:fixed;left:50%;top:var(--ml-top,120px);z-index:9480;width:min(300px,70vw);transform:translateX(-50%);pointer-events:none;color:var(--ml-col,${COL})}
+.ml-leak svg{width:100%;height:auto;display:block;overflow:visible;filter:drop-shadow(0 0 12px color-mix(in srgb,currentColor 55%,transparent))}
+.ml-board{fill:#0d1a10;stroke:currentColor;stroke-width:2}
+.ml-ic{fill:#16111c;stroke:#3a3046;stroke-width:1}
+.ml-gold{fill:#c9a23a}
+.ml-crack{fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;animation:mlPulse 1.1s ease-in-out infinite alternate}
+.ml-drip{fill:currentColor;animation:mlDrip 1.6s ease-in infinite}
+.ml-leak.stagger svg{animation:mlStagger .28s steps(2) infinite}
+.ml-leak.calm .ml-crack,.ml-leak.calm .ml-drip{animation:none}
+.ml-leak.dead svg{animation:mlDie .9s ease-in forwards}
+
+.ml-block{position:fixed;left:0;top:0;z-index:9500;margin:0;padding:0;border:0;background:none;cursor:crosshair;color:var(--ml-col,${COL});
+  width:var(--w);height:calc(var(--w) * .64);touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;
+  transition:transform .3s cubic-bezier(.2,.9,.3,1.1),opacity .2s;outline:none}
+.ml-block svg{width:100%;height:100%;overflow:visible;display:block;pointer-events:none;filter:drop-shadow(0 0 6px color-mix(in srgb,currentColor 50%,transparent))}
+.ml-block:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.ml-chip{fill:#120b18;stroke:currentColor;stroke-width:2.5}
+.ml-pin{fill:#c9a23a}
+.ml-die{fill:color-mix(in srgb,currentColor 30%,#120b18);stroke:currentColor;stroke-width:1}
+.ml-addr{fill:#fff;font:700 13px ui-monospace,'Courier New',monospace;letter-spacing:.5px}
+.ml-kb{fill:currentColor;font:700 12px ui-monospace,'Courier New',monospace}
+.ml-pip{fill:#fff;stroke:currentColor;stroke-width:2}
+.ml-pipn{fill:#120b18;font:900 15px ui-monospace,'Courier New',monospace;text-anchor:middle}
+.ml-block.freed{opacity:0;pointer-events:none}
+.ml-block.freed svg{transform:scale(1.4);transition:transform .25s}
+.ml-block.bad svg{animation:mlBad .3s steps(3)}
+.ml-block.calm{transition:none}
+.ml-links{position:fixed;inset:0;z-index:9490;pointer-events:none;width:100vw;height:100vh;overflow:visible}
+.ml-links line{stroke:${COL_II};stroke-width:3;stroke-dasharray:8 6;opacity:.8}
+
+.ml-gc{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:9560;width:84px;height:84px;margin-left:-42px;padding:0;
+  border:0;border-radius:50%;background:none;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;color:#fff;outline:none}
+.ml-gc svg{width:100%;height:100%;overflow:visible;pointer-events:none}
+.ml-gc-bg{fill:rgba(10,4,14,.9);stroke:rgba(255,255,255,.25);stroke-width:2}
+.ml-gc-ring{fill:none;stroke:${COL_WIN};stroke-width:6;stroke-linecap:round;transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset .2s}
+.ml-gc-txt{fill:rgba(255,255,255,.45);font:900 20px ui-monospace,'Courier New',monospace;text-anchor:middle;letter-spacing:2px}
+.ml-gc-sub{fill:rgba(255,255,255,.4);font:700 8px ui-monospace,'Courier New',monospace;text-anchor:middle;letter-spacing:1.5px}
+.ml-gc.ready .ml-gc-bg{fill:color-mix(in srgb,${COL_WIN} 25%,#0a040e);stroke:${COL_WIN}}
+.ml-gc.ready .ml-gc-txt,.ml-gc.ready .ml-gc-sub{fill:#fff}
+.ml-gc.ready{animation:mlReady .8s ease-in-out infinite alternate}
+.ml-gc.calm.ready{animation:none}
+.ml-gc:focus-visible{outline:2px solid #fff;outline-offset:3px}
+
+.ml-recall{position:fixed;left:50%;top:50%;z-index:9580;display:grid;grid-template-columns:repeat(3,var(--c));gap:10px;
+  --c:min(88px,24vw);transform:translate(-50%,-45%)}
+.ml-cell{width:var(--c);height:var(--c);padding:0;border:2px solid color-mix(in srgb,${COL_RECALL} 45%,transparent);background:rgba(6,14,18,.92);
+  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .08s,box-shadow .08s;outline:none}
+.ml-cell svg{width:100%;height:100%;pointer-events:none}
+.ml-cell rect{fill:none;stroke:color-mix(in srgb,${COL_RECALL} 35%,transparent);stroke-width:2}
+.ml-cell.lit{background:${COL_RECALL};box-shadow:0 0 28px ${COL_RECALL}}
+.ml-cell.good{background:${COL_WIN};box-shadow:0 0 24px ${COL_WIN}}
+.ml-cell.wrong{background:${COL_III};box-shadow:0 0 24px ${COL_III}}
+.ml-recall.watch .ml-cell{cursor:default}
+.ml-cell:focus-visible{outline:2px solid #fff;outline-offset:2px}
+
+@keyframes mlPulse{from{opacity:.5}to{opacity:1}}
+@keyframes mlDrip{0%{transform:translateY(0);opacity:1}100%{transform:translateY(22px);opacity:0}}
+@keyframes mlStagger{0%{filter:brightness(3) saturate(0)}100%{filter:none}}
+@keyframes mlDie{30%{transform:scale(1.08);filter:brightness(3)}100%{transform:scale(.2,0);opacity:0}}
+@keyframes mlBad{0%,100%{transform:none}33%{transform:translateX(-5px)}66%{transform:translateX(5px)}}
+@keyframes mlReady{from{transform:scale(1)}to{transform:scale(1.08)}}
+`;
+    function _css() {
+        if (document.getElementById('ml-css')) return;
+        const s = document.createElement('style'); s.id = 'ml-css'; s.textContent = CSS;
+        document.head.appendChild(s);
+    }
+
+    const LEAK_ART = (() => {
+        let ics = '', pins = '';
+        for (let i = 0; i < 6; i++) ics += '<rect class="ml-ic" x="' + (18 + i * 36) + '" y="14" width="28" height="30" rx="2"/>';
+        for (let i = 0; i < 28; i++) if (i !== 13) pins += '<rect class="ml-gold" x="' + (12 + i * 8) + '" y="58" width="5" height="12"/>';
+        let drips = '';
+        [[96, 0], [140, 0.5], [118, 1.0]].forEach(([x, d]) => { drips += '<ellipse class="ml-drip" cx="' + x + '" cy="76" rx="3" ry="5" style="animation-delay:' + d + 's"/>'; });
+        return '<svg viewBox="0 0 240 100" aria-hidden="true"><rect class="ml-board" x="4" y="4" width="232" height="66" rx="4"/>' + ics + pins
+            + '<path class="ml-crack" d="M104,4 L112,22 L100,34 L118,48 L110,70 M112,22 L130,28 L124,40"/>' + drips + '</svg>';
+    })();
+
+    function _blockArt(kb, addr, idx) {
+        let pins = '';
+        for (let i = 0; i < 8; i++) pins += '<rect class="ml-pin" x="' + (12 + i * 10.5) + '" y="1" width="5" height="7"/><rect class="ml-pin" x="' + (12 + i * 10.5) + '" y="56" width="5" height="7"/>';
+        return '<svg viewBox="0 0 100 64" aria-hidden="true">' + pins
+            + '<rect class="ml-chip" x="4" y="7" width="92" height="50" rx="4"/><rect class="ml-die" x="12" y="15" width="22" height="34" rx="2"/>'
+            + '<text class="ml-addr" x="40" y="30">' + addr + '</text><text class="ml-kb" x="40" y="47">' + kb + ' KB</text>'
+            + (idx ? '<circle class="ml-pip" cx="88" cy="9" r="11"/><text class="ml-pipn" x="88" y="14">' + idx + '</text>' : '')
+            + '</svg>';
+    }
+    const GC_ART = '<svg viewBox="0 0 84 84" aria-hidden="true"><circle class="ml-gc-bg" cx="42" cy="42" r="38"/>'
+        + '<circle class="ml-gc-ring" cx="42" cy="42" r="38"/><text class="ml-gc-txt" x="42" y="47">GC</text><text class="ml-gc-sub" x="42" y="62">COLLECT</text></svg>';
+
+    /* ── the leak and its blocks ────────────────────────────────────────── */
+    function _leakAt() {
+        const r = _leak ? _leak.getBoundingClientRect() : { left: innerWidth / 2 - 120, width: 240, top: 76, height: 100 };
+        return { x: r.left + r.width / 2, y: r.top + r.height * 0.75 };
+    }
+    function _area() {
+        const W = innerWidth, H = innerHeight, top = (_leak ? _leak.getBoundingClientRect().bottom : 170) + 52;   // room for a hint
+        return { x0: 16, x1: Math.max(17, W - 16), y0: top, y1: Math.max(top + 1, H - 200) };
+    }
+    function _spot(w, h, near) {
+        const a = _area(); let best = null, bestD = -1;
+        for (let i = 0; i < 30; i++) {
+            let x, y;
+            if (near) { x = near.x + (Math.random() - 0.5) * 260; y = near.y + (Math.random() - 0.5) * 200; }
+            else { x = a.x0 + w / 2 + Math.random() * Math.max(1, a.x1 - a.x0 - w); y = a.y0 + h / 2 + Math.random() * Math.max(1, a.y1 - a.y0 - h); }
+            x = Math.max(a.x0 + w / 2, Math.min(a.x1 - w / 2, x)); y = Math.max(a.y0 + h / 2, Math.min(a.y1 - h / 2, y));
+            let d = 1e9; _blocks.forEach(b => { if (!b.freed) d = Math.min(d, Math.hypot(b.x - x, b.y - y) - (b.w + w) * 0.45); });
+            if (d > 6) return { x, y };
+            if (d > bestD) { bestD = d; best = { x, y }; }
+        }
+        return best;
+    }
+    const _width = kb => (kb >= 64 ? 128 : kb >= 32 ? 108 : 94) * (innerWidth < 520 ? 0.82 : 1);
+
+    function _alloc(kb, at, chain, from) {
+        if (_blocks.size >= MAX_BLOCKS + (chain ? CHAIN_LEN : 0)) return null;
+        const w = _width(kb), h = w * 0.64;
+        const p = at || _spot(w, h);
+        if (!p) return null;
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'ml-block' + (_calm() ? ' calm' : '');
+        const addr = '0x' + Math.floor(0x1000 + Math.random() * 0xEFFF).toString(16).toUpperCase();
+        el.innerHTML = _blockArt(kb, addr, chain ? chain.idx : 0);
+        el.style.setProperty('--w', Math.round(w) + 'px');
+        el.style.setProperty('--ml-col', chain ? COL_II : _col());
+        el.setAttribute('aria-label', 'Leaked block ' + addr + ', ' + kb + ' kilobytes' + (chain ? ', link ' + chain.idx + ' of ' + CHAIN_LEN : '') + '. Press to free it.');
+        const b = { el, kb, x: p.x, y: p.y, w, h, chain: chain || null, freed: false };
+        const src = from || _leakAt();
+        el.style.transform = 'translate(' + Math.round(src.x - w / 2) + 'px,' + Math.round(src.y - h / 2) + 'px) scale(.3)';
+        el.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); _free(b, 'hand'); });
+        el.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) _free(b, 'hand'); });   // detail 0: the keyboard
+        document.body.appendChild(el);
+        void el.offsetWidth;
+        el.style.transform = 'translate(' + Math.round(p.x - w / 2) + 'px,' + Math.round(p.y - h / 2) + 'px)';
+        _blocks.add(b);
+        return b;
+    }
+
+    function _drip() {
+        _spawned++;
+        if (_phase >= 1 && _spawned % CHAIN_EVERY === 0 && !_chainUp()) { _chainOf(); _fx('alloc'); return; }
+        const big = _phase === 2 && _spawned % BIG_EVERY === 0;
+        const n = _spawned % BURST_EVERY === 0 ? BURST : 1;
+        let any = false;
+        for (let i = 0; i < n; i++) if (_alloc(big && !i ? 64 : [16, 32][Math.random() < 0.6 ? 0 : 1])) any = true;
+        if (any) _fx('alloc');
+    }
+    const _chainUp = () => { for (const b of _blocks) if (b.chain && !b.freed) return true; return false; };
+    function _chainOf() {
+        const id = ++_chainId, w = _width(32), h = w * 0.64, first = _spot(w, h);
+        if (!first) return;
+        let prev = first;
+        for (let i = 1; i <= CHAIN_LEN; i++) {
+            const p = i === 1 ? first : (_spot(w, h, prev) || _spot(w, h));
+            const b = _alloc(32, p, { id, idx: i });
+            if (b) prev = p;
+        }
+        _drawLinks();
+        _hintAt('chain', 'FREE A CHAIN IN ORDER: 1, 2, 3', 'target', 3000, first.x, first.y + 60);
+    }
+    function _drawLinks() {
+        if (!_links) return;
+        const chain = [..._blocks].filter(b => b.chain && !b.freed).sort((a, b) => a.chain.idx - b.chain.idx);
+        let s = '';
+        for (let i = 1; i < chain.length; i++) s += '<line x1="' + chain[i - 1].x + '" y1="' + chain[i - 1].y + '" x2="' + chain[i].x + '" y2="' + chain[i].y + '"/>';
+        _links.innerHTML = s;
+    }
+
+    /* ── freeing ────────────────────────────────────────────────────────── */
+    function _free(b, how) {
+        if (!_active || !_ready || b.freed) return false;
+        if (_mode === 'stagger') { if (how === 'hand') { K().pop(b.x, b.y, 'LOCKED', 'info', '#ffffff'); _fx('immune'); } return false; }
+        if (_mode !== 'fight') return false;
+        if (b.chain && how === 'hand') {                 // a pointer chain: in order, or it faults
+            const next = Math.min(...[..._blocks].filter(x => x.chain && x.chain.id === b.chain.id && !x.freed).map(x => x.chain.idx));
+            if (b.chain.idx !== next) {
+                _stats.segfaults++;
+                _heap = Math.min(100, _heap + SEGFAULT_HEAP);
+                b.el.classList.remove('bad'); void b.el.offsetWidth; b.el.classList.add('bad');
+                K().pop(b.x, b.y - 20, 'SEGFAULT  HEAP +' + SEGFAULT_HEAP + '%', 'reflect');
+                K().flash(COL_III, 0.22); K().shake(4);
+                _fx('segfault');
+                _hintAt('segfault', 'OUT OF ORDER. FREE ' + next + ' FIRST.', 'warning', 2600, b.x, b.y + 50);
+                return false;
+            }
+        }
+        b.freed = true; _blocks.delete(b);
+        b.el.classList.add('freed'); setTimeout(() => b.el.remove(), 280);
+        _heap = Math.max(0, _heap - HEAP_FREE);
+        if (how === 'hand') {
+            _stats.hand++;
+            _gc = Math.min(GC_NEED, _gc + 1);
+            if (_gc === GC_NEED) { _fx('gcReady'); _hintAt('gc', 'THE COLLECTOR IS READY. PRESS GC.', 'energy', 3000, innerWidth / 2, innerHeight - 230); }
+        }
+        _fx('free', 'click', b.kb);
+        K().pop(b.x, b.y - 10, how === 'gc' ? 'COLLECTED' : 'FREED', how === 'gc' ? 'info' : 'hit', _col());
+        let dmg = 1 + (how === 'gc' ? GC_BONUS : 0);
+        if (b.kb >= 64) _split(b);                       // fragmentation: a big block leaves two small ones
+        if (b.chain) {
+            const left = [..._blocks].some(x => x.chain && x.chain.id === b.chain.id && !x.freed);
+            if (!left) {
+                _stats.chains++;
+                dmg += CHAIN_BONUS; _heap = Math.max(0, _heap - CHAIN_HEAP);
+                K().pop(b.x, b.y - 46, 'CHAIN FREED  -' + (1 + CHAIN_BONUS), 'crit', COL_II);
+                _fx('chainDone');
+            }
+            _drawLinks();
+        }
+        _damage(dmg);
+        return true;
+    }
+    function _split(b) {
+        _hintAt('split', 'BIG BLOCKS FRAGMENT. FREE THE PIECES TOO.', 'warning', 2600, b.x, b.y + 60);
+        for (let i = 0; i < 2; i++) {
+            const w = _width(16), h = w * 0.64;
+            const p = _spot(w, h, { x: b.x + (i ? 70 : -70), y: b.y }) || _spot(w, h);
+            _alloc(16, p, null, { x: b.x, y: b.y });
+        }
+    }
+
+    function _damage(n) {
+        _hp = Math.max(_floor(), _hp - n);
+        if (_hp <= _floor()) { if (_phase < 2) _enterPhase(_phase + 1); else _beginRecall(); }
+    }
+
+    function collect() {
+        if (!_active || _mode !== 'fight' || _gc < GC_NEED) return false;
+        _gc = 0; _stats.gcs++;
+        _fx('gc');
+        K().flash(COL_WIN, 0.3); K().shake(5);
+        const all = [..._blocks];
+        _heap = Math.max(0, _heap - GC_HEAP);
+        for (const b of all) { if (_mode !== 'fight') break; _free(b, 'gc'); }
+        K().pop(innerWidth / 2, innerHeight - 200, 'GARBAGE COLLECTED  ' + all.length + ' BLOCKS', 'crit', COL_WIN);
+        _refresh();
+        return true;
+    }
+    function tryCommand(val) { return String(val || '').trim().toUpperCase() === CMD ? collect() : false; }
+
+    /* ── lifecycle ──────────────────────────────────────────────────────── */
+    function tick() {
+        if (!_running()) return;
+        const now = Date.now();
+        if (now - _lastCheck < CHECK_MS) return;
+        _lastCheck = now;
+        if (_active || now < _nextAllowed) return;
+        if (window.GlobalEventQueue && GlobalEventQueue.isActive()) return;   // never on top of another crisis
+        if (((S().prestige && S().prestige.count) || 0) >= 2 && (S().instability || 0) > 75 && Math.random() < ROLL) _trigger();
+    }
+
+    function _trigger() {
+        if (_active) return false;
+        if (window.GlobalEventQueue && !GlobalEventQueue.hold('memoryLeak')) return false;
+        _css();
+        _active = true; _ready = false; _mode = 'intro';
+        _max = HP_MIN + Math.floor(Math.random() * HP_SPREAD); _hp = _max;
+        _phase = 0; _heap = HEAP_START; _peak = _heap; _t = 0; _gc = 0; _spawned = 0;
+        _stats = { hand: 0, gcs: 0, chains: 0, segfaults: 0, wrong: 0, at: [] };
+        _hints = {};
+        _ticker('MEMORY LEAK: it is allocating blocks. Free them before the heap fills.', COL, 8000);
+        _fx('siren', 'stinger:eventStart');
+        K().intro({ name: 'MEMORY LEAK', sub: 'ALLOCATED. NEVER FREED.', col: COL }).then(() => { if (_active) _appear(); });
+        return true;
+    }
+
+    function _appear() {
+        _leak = document.createElement('div');
+        _leak.className = 'ml-leak' + (_calm() ? ' calm' : '');
+        _leak.innerHTML = LEAK_ART;
+        _leak.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(_leak);
+        _links = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        _links.setAttribute('class', 'ml-links'); _links.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(_links);
+        _gcBtn = document.createElement('button');
+        _gcBtn.type = 'button';
+        _gcBtn.className = 'ml-gc' + (_calm() ? ' calm' : '');
+        _gcBtn.innerHTML = GC_ART;
+        _gcBtn.setAttribute('aria-label', 'Garbage collector. Frees every block on screen when charged.');
+        _gcBtn.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); collect(); });
+        _gcBtn.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) collect(); });
+        document.body.appendChild(_gcBtn);
+        K().bar({ name: 'MEMORY LEAK', col: COL, marks: [LINE_II, LINE_III] });
+        K().phase('PHASE I  ALLOCATION');
+        _mode = 'fight'; _ready = true;
+        _spawnAt = 0.4;
+        document.addEventListener('keydown', _onKey, true);
+        _lastTs = performance.now();
+        _refresh();
+        _hintAt('free', 'TAP BLOCKS TO FREE THEM BEFORE THE HEAP FILLS', 'target', 3400, innerWidth / 2, (_leak.getBoundingClientRect().bottom || 170) + 16);
+        _music('alloc');
+        _raf = requestAnimationFrame(_frame);
+    }
+
+    function _onKey(e) {
+        if (!_active) return;
+        if ((e.key === 'g' || e.key === 'G') && _mode === 'fight' && !(e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) { e.preventDefault(); collect(); }
+        if (_mode === 'recall' && /^[1-9]$/.test(e.key)) { e.preventDefault(); _cellPress(+e.key - 1); }
+    }
+
+    function _frame(now) {
+        if (!_active) return;
+        _raf = requestAnimationFrame(_frame);
+        const dt = Math.min(0.1, (now - _lastTs) / 1000);
+        _lastTs = now;
+        const paused = _paused();
+        try { if (window.BossAudio) BossAudio.duck(paused); } catch (e) {}
+        if (!_ready || paused) return;
+        _t += dt;
+        if (_mode === 'stagger' && _t >= _staggerUntil) {
+            if (_leak) _leak.classList.remove('stagger');
+            _mode = 'fight';
+            const f = _afterStagger; _afterStagger = null; if (f) f();
+        }
+        if (_mode === 'fight') {
+            if (_t >= _spawnAt) { _drip(); _spawnAt = _t + SPAWN_S[_phase] * (0.85 + Math.random() * 0.3); }
+            if (!_qaHold) _heap += (HEAP_BASE[_phase] + HEAP_PER_BLOCK * _blocks.size) * dt;
+            _peak = Math.max(_peak, _heap);
+            if (_heap >= HEAP_WARN && _t >= _warnAt) { _fx('heapWarn'); _warnAt = _t + 1.4; }
+            if (_heap >= 100) { _heap = 100; _refresh(); _fail(); return; }
+        }
+        if (_mode === 'recall') _stepRecall();
+        _refresh();
+    }
+
+    function _refresh() {
+        if (!_active || !K()) return;
+        K().hp(_hp / Math.max(1, _max));
+        const bar = document.getElementById('boss-bar');   // the leak hangs just under the bar, however tall the bar is
+        if (_leak && bar) { const top = Math.round(bar.getBoundingClientRect().bottom + 10) + 'px'; if (_leak.style.getPropertyValue('--ml-top') !== top) _leak.style.setProperty('--ml-top', top); }
+        if (_mode === 'recall' && _recall) {
+            K().right(_recall.watching ? 'WATCH' : 'RECALL ' + _recall.got + '/' + RECALL_LEN + '  ' + Math.max(0, _recall.until - _t).toFixed(1) + 'S', !_recall.watching);
+        } else {
+            K().right('HEAP ' + Math.min(100, Math.floor(_heap)) + '%', _heap >= HEAP_WARN);
+        }
+        if (K().gauge) K().gauge('HEAP', _heap / 100, _heap >= HEAP_WARN ? COL_III : _heap >= 55 ? COL_II : COL_WIN, _heap >= HEAP_WARN);
+        K().sub(_mode === 'recall' ? 'IT IS COMPACTING. REPEAT THE CELLS IN ORDER.'
+            : _blocks.size + ' BLOCK' + (_blocks.size === 1 ? '' : 'S') + ' ALLOCATED   AT 100% HEAP IT TAKES THE SIMULATION');
+        if (_gcBtn) {
+            const ring = _gcBtn.querySelector('.ml-gc-ring'), c = 2 * Math.PI * 38;
+            ring.style.strokeDasharray = c.toFixed(1);
+            ring.style.strokeDashoffset = (c * (1 - _gc / GC_NEED)).toFixed(1);
+            _gcBtn.classList.toggle('ready', _gc >= GC_NEED && _mode === 'fight');
+            _gcBtn.hidden = _mode === 'recall';
+        }
+    }
+
+    /* hints show in one place, just under the leak, so they never sit on a block; the collector's sits over its button */
+    function _hintAt(key, text, ic, ms, x, y) {
+        if (_hints[key]) return;
+        _hints[key] = true;
+        const under = _leak ? _leak.getBoundingClientRect().bottom + 8 : 180;
+        K().hint(text, key === 'gc' ? x : innerWidth / 2, key === 'gc' ? y : under, ms || 2600, _col(), ic);
+    }
+
+    /* ── phases ─────────────────────────────────────────────────────────── */
+    function _stagger(then) {
+        _mode = 'stagger'; _staggerUntil = _t + STAGGER_S; _afterStagger = then;
+        if (_leak) _leak.classList.add('stagger');
+    }
+    function _enterPhase(p) {
+        _phase = p;
+        _stats.at[p] = Math.round(_t);
+        const col = _col();
+        if (_leak) _leak.style.setProperty('--ml-col', col);
+        _blocks.forEach(b => { if (!b.chain) b.el.style.setProperty('--ml-col', col); });
+        K().colour(col);
+        K().phase(p === 1 ? 'PHASE II  POINTERS' : 'PHASE III  FRAGMENTATION');
+        K().flash(col, 0.4); K().shake(7);
+        _fx('phase', 'stinger:eventStart');
+        _music(p === 1 ? 'pointers' : 'frag');
+        _ticker(p === 1 ? 'The leak links its blocks. Free a chain in order.' : 'The leak is fragmenting. Big blocks split.', col, 4000);
+        _stagger(() => { _spawnAt = _t + 0.3; });
+    }
+
+    /* ── the recall ─────────────────────────────────────────────────────── */
+    function _beginRecall() {
+        _mode = 'recall';
+        if (_stats.at[3] == null) _stats.at[3] = Math.round(_t);
+        const c = _leakAt();
+        _blocks.forEach(b => {                           // compaction: every block is pulled into the leak
+            b.freed = true; b.el.style.transform = 'translate(' + Math.round(c.x - b.w / 2) + 'px,' + Math.round(c.y - b.h / 2) + 'px) scale(.2)';
+            b.el.classList.add('freed'); setTimeout(() => b.el.remove(), 320);
+        });
+        _blocks.clear(); _drawLinks();
+        if (_leak) _leak.style.setProperty('--ml-col', COL_RECALL);
+        K().colour(COL_RECALL); K().phase('RECALL');
+        K().flash('#ffffff', 0.5); K().shake(8);
+        _fx('phase', 'stinger:eventStart');
+        _music('recall');
+        const el = document.createElement('div');
+        el.className = 'ml-recall watch';
+        el.setAttribute('role', 'group');
+        el.setAttribute('aria-label', 'Memory cells. Watch four light up, then press them in the same order, or type their numbers 1 to 9.');
+        const cells = [];
+        for (let i = 0; i < 9; i++) {
+            const c = document.createElement('button');
+            c.type = 'button'; c.className = 'ml-cell';
+            c.setAttribute('aria-label', 'Cell ' + (i + 1));
+            c.innerHTML = '<svg viewBox="0 0 40 40" aria-hidden="true"><rect x="8" y="8" width="24" height="24" rx="2"/></svg>';
+            c.addEventListener('pointerdown', e => { if (e.button > 0) return; e.preventDefault(); e.stopPropagation(); _cellPress(i); });
+            c.addEventListener('click', e => { e.stopPropagation(); if (e.detail === 0) _cellPress(i); });
+            el.appendChild(c); cells.push(c);
+        }
+        document.body.appendChild(el);
+        const seq = [];
+        while (seq.length < RECALL_LEN) { const n = Math.floor(Math.random() * 9); if (!seq.includes(n)) seq.push(n); }
+        const step = RECALL_STEP_S * (_calm() ? 1.3 : 1);
+        _recall = { el, cells, seq, got: 0, watching: true, showAt: _t + 0.9, step, shown: -1, until: Infinity, retry: true };
+        _ticker('The leak is compacting. Remember the cells.', COL_RECALL, 4000);
+        K().hint('WATCH THE CELLS, THEN TAP THEM IN THE SAME ORDER', innerWidth / 2, innerHeight / 2 + 190, 3400, COL_RECALL, 'eye');
+    }
+
+    function _stepRecall() {
+        const r = _recall; if (!r) return;
+        if (r.watching) {
+            const k = Math.floor((_t - r.showAt) / r.step);
+            if (k >= 0 && k !== r.shown) {
+                r.cells.forEach(c => c.classList.remove('lit'));
+                if (k < r.seq.length) { r.cells[r.seq[k]].classList.add('lit'); _fx('cell', null, r.seq[k]); }
+                r.shown = k;
+            }
+            if (k >= r.seq.length) {
+                r.cells.forEach(c => c.classList.remove('lit'));
+                r.watching = false; r.el.classList.remove('watch');
+                r.until = _t + RECALL_WINDOW_S;
+                try { r.cells[0].focus({ preventScroll: true }); } catch (e) {}
+            }
+            return;
+        }
+        if (_t >= r.until) _recallFail('TOO SLOW');
+    }
+
+    function _cellPress(i) {
+        const r = _recall;
+        if (!r || r.watching || _mode !== 'recall' || _paused()) return;
+        const c = r.cells[i];
+        if (r.seq[r.got] === i) {
+            r.got++;
+            c.classList.remove('good'); void c.offsetWidth; c.classList.add('good');
+            setTimeout(() => c.classList.remove('good'), 220);
+            _fx('cell', null, i);
+            if (r.got >= RECALL_LEN) { _fx('lock', null, 2); _win(); }
+        } else if (r.retry) {               // one second look: the sequence plays again
+            r.retry = false; r.got = 0; r.watching = true; r.shown = -1; r.showAt = _t + 0.9; r.until = Infinity;
+            r.el.classList.add('watch');
+            c.classList.add('wrong'); setTimeout(() => c.classList.remove('wrong'), 400);
+            _stats.wrong++;
+            _fx('segfault');
+            K().pop(innerWidth / 2, innerHeight / 2 - 190, 'WRONG CELL  WATCH AGAIN', 'reflect');
+        } else {
+            c.classList.add('wrong');
+            _recallFail('WRONG CELL');
+        }
+    }
+
+    function _recallFail(why) {
+        const r = _recall; if (!r) return;
+        _stats.wrong++;
+        _recall = null;
+        setTimeout(() => r.el.remove(), 300);
+        _hp = Math.max(1, Math.round(_max * RECALL_FAIL_HP));
+        if (_leak) _leak.style.setProperty('--ml-col', COL_III);
+        K().colour(COL_III); K().phase('PHASE III  FRAGMENTATION'); K().heal();
+        K().pop(innerWidth / 2, innerHeight / 2, why + '  IT REALLOCATED', 'reflect');
+        K().flash(COL_III, 0.45); K().shake(8);
+        _fx('sealMiss', 'stinger:eventFail');
+        _music('frag');
+        _mode = 'fight';
+        _stagger(() => { _spawnAt = _t + 0.2; });
+    }
+
+    /* ── endings ────────────────────────────────────────────────────────── */
+    function _stop() {
+        _active = false; _ready = false; _mode = 'off';
+        cancelAnimationFrame(_raf); _raf = 0;
+        document.removeEventListener('keydown', _onKey, true);
+        _blocks.forEach(b => b.el.remove()); _blocks.clear();
+        [_links, _gcBtn].forEach(e => e && e.remove()); _links = _gcBtn = null;
+        if (_recall) { _recall.el.remove(); _recall = null; }
+        if (window.GlobalEventQueue) GlobalEventQueue.unhold('memoryLeak');
+        _nextAllowed = Date.now() + GAP_MS;
+        _music(null);
+        try { if (window.BossAudio) BossAudio.duck(false); } catch (e) {}
+    }
+    function _dropLeak(cls) { const l = _leak; _leak = null; if (l) { l.classList.add(cls); setTimeout(() => l.remove(), 950); } }
+
+    function _grade(clean) {
+        const miss = _stats.segfaults + _stats.wrong * 3 + (_peak >= HEAP_WARN ? 2 : 0);
+        if (clean) return _peak < 55 ? 'S' : 'A';
+        return miss <= 3 ? 'A' : miss <= 7 ? 'B' : 'C';
+    }
+
+    function _win() {
+        if (!_active) return;
+        const st = S(), eps = _income();
+        const clean = _stats.segfaults === 0 && _stats.wrong === 0 && _peak < HEAP_WARN;
+        const reward = _pay(BOUNTY[0], BOUNTY[1], BOUNTY[2]) * (clean ? CLEAN_MULT : 1);
+        const frags = clean ? 5 : 3, stats = _stats, secs = _t, grade = _grade(clean), peak = _peak;
+        st.energy = (st.energy || 0) + reward;
+        st.fragments = (st.fragments || 0) + frags;
+        _stop();
+        _dropLeak('dead');
+        K().flash('#ffffff', 0.6); K().shake(10);
+        K().end();
+        _fx('win', 'stinger:eventWin');
+        const mins = eps > 0 ? reward / eps / 60 : 0;
+        setTimeout(() => K().result({ title: 'HEAP RECLAIMED', col: COL_WIN, grade, rows: [
+            ['energy', 'Bounty' + (clean ? ' (clean x1.5)' : ''), '+' + _fmt(reward) + ' E' + (mins > 0 ? ' (' + (mins >= 10 ? Math.round(mins) : mins.toFixed(1)) + ' MIN)' : '')],
+            ['fragment', 'Fragments', '+' + frags],
+            ['clock', 'Reclaimed in', Math.round(secs) + 'S'],
+            ['instability', 'Peak heap', Math.round(peak) + '%'],
+            ['target', 'Freed by hand / collections', stats.hand + ' / ' + stats.gcs],
+            ['shield', 'Mistakes', String(stats.segfaults + stats.wrong)],
+        ] }), _calm() ? 0 : 700);
+        _ticker('HEAP RECLAIMED: +' + _fmt(reward) + ' E, +' + frags + ' fragments', COL_WIN, 6000);
+        st._bossesDefeated = (st._bossesDefeated || 0) + 1;
+        try { if (typeof updateFragmentsUI === 'function') updateFragmentsUI(); if (typeof Game !== 'undefined' && Game.update) Game.update(); } catch (e) {}
+        try { if (typeof Achieve !== 'undefined') Achieve.checkAll(); } catch (e) {}
+    }
+
+    function _fail() {
+        if (!_active) return;
+        _stop();
+        _dropLeak('dead');
+        K().end();
+        _fx('fail', 'stinger:eventFail');
+        try { if (typeof Instability !== 'undefined' && Instability.add) Instability.add(25); else S().instability = Math.min(100, (S().instability || 0) + 25); } catch (e) {}
+        K().result({ title: 'OUT OF MEMORY', col: COL, rows: [['instability', 'Contained by force', 'Instability +25%']] });
+        _ticker('MEMORY LEAK contained by force. Instability +25%', COL_III, 5000);
+    }
+
+    /* a quit: no reward, no penalty, nothing left on screen */
+    function cancel() {
+        if (_active || _blocks.size || _leak) { _stop(); if (_leak) { _leak.remove(); _leak = null; } K().clear(); }
+        document.querySelectorAll('.ml-block,.ml-leak,.ml-links,.ml-gc,.ml-recall').forEach(e => e.remove());
+    }
+
+    return { tick, tryCommand, collect, cancel, isActive: () => _active,
+        /* QA: read-only state, and levers for the viewer and the tests */
+        _qaTrigger: () => { _nextAllowed = 0; return _trigger(); },
+        _qa: () => ({ active: _active, ready: _ready, mode: _mode, hp: _hp, max: _max, phase: _phase, heap: _heap, peak: _peak, gc: _gc,
+                      blocks: [..._blocks].map(b => ({ x: b.x, y: b.y, kb: b.kb, chain: b.chain ? b.chain.idx : 0, id: b.chain ? b.chain.id : 0 })),
+                      recall: _recall ? { seq: _recall.seq.slice(), got: _recall.got, watching: _recall.watching } : null,
+                      stats: _stats ? Object.assign({}, _stats, { at: _stats.at.slice() }) : null, next: _nextAllowed - Date.now(),
+                      GC_NEED, BOUNTY: BOUNTY.slice(), GAP_MS, ROLL }),
+        _qaPhase: p => { while (_active && _phase < p && _mode !== 'recall') { _hp = _floor(); _enterPhase(_phase + 1); } },
+        _qaRecall: () => { if (_active && _mode !== 'recall') { _phase = 2; _hp = 0; _beginRecall(); } },
+        _qaSkipStagger: () => { _staggerUntil = _t; },
+        _qaSetHeap: v => { _heap = v; },
+        _qaSetHp: v => { _hp = Math.max(1, Math.min(_max, v)); },
+        _qaCharge: () => { _gc = GC_NEED; },
+        _qaHoldHeap: on => { _qaHold = !!on; },
+    };
+})();
+window.MemoryLeakBoss = MemoryLeakBoss;

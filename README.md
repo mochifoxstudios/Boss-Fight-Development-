@@ -11,7 +11,7 @@ All three bosses live in one file, `src/bosses.js`, and that file is the whole d
 | 1. `BossKit`: the shared stage (intro card, boss bar with damage trail, pop-ups, hints, flashes, result card, SVG icons) | done |
 | 1b. `BossAudio`: the bosses' soundtrack and sound effects, synthesized live with Web Audio (no audio files) | done |
 | 2. `AnomalyBoss`: the Reality Breach | done |
-| 3. `MemoryLeakBoss`: the Memory Leak | next |
+| 3. `MemoryLeakBoss`: the Memory Leak | done |
 | 4. `FirewallBoss`: the Firewall Entity | next |
 
 Development tools (none of these ship):
@@ -21,6 +21,8 @@ Development tools (none of these ship):
 | `tools/viewer.js` | Builds a self-contained preview page: a stand-in for the parts of the game a boss touches, `bosses.js` inlined, and a panel to spawn the boss and skip to any phase. |
 | `tests/reality-breach.test.js` | Plays every Reality Breach mechanic in Chromium (57 checks, including that the music plays, switches per phase and stops), using the viewer page. |
 | `tests/balance.js` | Scripted players fight the breach to the end and report wins and time left. |
+| `tests/memory-leak.test.js` | Plays every Memory Leak mechanic in Chromium (52 checks, including a phone with a finger). |
+| `tests/balance-leak.js` | Scripted players fight the Memory Leak to the end and report wins, peak heap and phase times. |
 
 ## Reality Breach
 
@@ -66,11 +68,43 @@ Behaviour changes from the old boss:
 
 Sounds: the boss plays its own (`BossAudio`). Only where Web Audio is unavailable does it fall back to the game's existing `sfx:breach`, `stinger:eventWin`, `stinger:eventFail` and `Sounds.click`.
 
+## Memory Leak
+
+A cracked RAM stick hangs under the boss bar and drips allocated memory blocks onto the screen. Every block left standing fills your **heap** faster, and the heap also fills on its own. At 100% the leak takes the simulation. Tap a block to free it: the leak loses 1 integrity and the heap drops a little.
+
+- **The garbage collector.** Every block you free by hand charges it. At 24 it lights up: press it (or G) to free every block on screen at once and drop the heap 20%. It replaces the old typed command, which doesn't work on touch. Typing `EXECUTE GARBAGE_COLLECTION` still works as a desktop shortcut through `tryCommand`.
+- **Phase I: allocation.** Plain 16 KB and 32 KB blocks, about three a second, with a burst of three every sixth drip. It teaches the heap.
+- **Phase II: pointers.** Some blocks arrive as a numbered chain of three, joined by dashed lines. Free them 1, 2, 3. Out of order is a **segfault**: nothing is freed and the heap jumps 5%. A whole chain in order deals 3 bonus damage and drops the heap 6%.
+- **Phase III: fragmentation.** The drip quickens, and big 64 KB blocks split into two 16 KB blocks when freed.
+- **Recall.** At 0 integrity it doesn't die. Its blocks are pulled back into the stick, and a 3 x 3 grid of memory cells lights four of them in turn, each with its own tone. Tap them back in the same order (or type their numbers 1 to 9) within 7 s. A first wrong cell plays the sequence again; a second, and it reallocates with 15% integrity and phase III resumes.
+- **Phase lines** sit at 65% and 35% of integrity. Each is a stagger, and freeing never climbs back over a line already crossed.
+- **Rewards.** Unchanged in kind: 120-480 s of income (`_birdPay`) and 3 fragments. A clean fight (no segfault, no wrong cell, heap never past 80%) pays the bounty x1.5 and 5 fragments. The result card gives a grade. Out of memory: instability +25%, as before.
+- **When it comes.** Unchanged: prestige 2 or more, instability over 75%, 45 minutes since the last one, then a 1% roll every 30 s.
+- **Soundtrack.** Its own songs in E minor: chiptune pulses for allocation (118 BPM), a driving arpeggio for pointers (128), a distorted bass for fragmentation (142), and a quiet pulse for the recall, where each cell has its own note. Sounds for every drip, free, segfault, finished chain and collection, and a double beep while the heap is over 80%.
+
+**Balance** (`node tests/balance-leak.js 5`: scripted players at 4x speed; a new block takes them a moment to notice, and they make chain and recall mistakes at their own rates):
+
+| Player | Wins | Peak heap | Phase I / II / III |
+|---|---|---|---|
+| Mouse, skilled (6.5 clicks/s) | 5 of 5 | about 26% | 14 / 8 / 8 s |
+| Mouse, sloppy (more segfaults, slow to use the collector) | 5 of 5 | about 28% | 14 / 9 / 8 s |
+| Touch, good (4.5 taps/s) | 5 of 5 | about 32% | 15 / 8 / 8 s |
+| Touch, casual (3.7 taps/s, slow to notice, slow to collect, more mistakes) | 5 of 5 | about 71% | 15 / 9 / 11 s |
+
+### Integration into the game
+
+1. Remove the old block from `systems3.js`. It starts at `/* ── 8. MEMORY LEAK BOSS` (reference line 554) and ends at `window.MemoryLeakBoss = MemoryLeakBoss;` (reference line 771).
+2. With both bosses moved into `bosses.js`, nothing uses `BossStage` in `game.js` any more (the banner `BOSS STAGE — the frame the bosses share`, reference lines 23646 to 23743, ending at `window.BossStage = BossStage;`). It can go too.
+3. `#memory-leak-terminal` in `index.html` is no longer used. It can stay where it is; nothing in `bosses.js` needs it, and nothing in `index.html` has to change for this boss.
+4. Everything that touches the old boss keeps working: `game.js` calls `MemoryLeakBoss.tick()` and `MemoryLeakBoss.cancel()`, and `music.js` reads `MemoryLeakBoss.isActive()`.
+
 ### Running
 
 ```sh
 node tools/viewer.js   # writes preview.html (git-ignored); open it in a browser
 node tools/viewer.js out.html --artifact   # the same page, shaped for publishing as a review artifact
+node tests/memory-leak.test.js             # the Memory Leak's checks
+node tests/balance-leak.js 5               # the Memory Leak's balance
 npm install            # or reuse a global playwright: NODE_PATH=$(npm root -g)
 npm test               # npm run test:shots also writes screenshots to tests/shots/
 ```

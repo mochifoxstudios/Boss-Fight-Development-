@@ -34,6 +34,8 @@ const SHELL = String.raw`<!doctype html>
   #panel #b-fold span { color:var(--dim); font-weight:400; }
   #panel.folded #panel-body { display:none; }
   #panel.folded #b-fold { margin:0; }
+  #panel .row { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  #panel .row button { margin:0; }
   #panel h2 { font-size:10px; letter-spacing:2px; margin:8px 0 4px; color:var(--dim); font-weight:400; }
   #panel button { display:block; width:100%; margin:4px 0; padding:6px; background:#1d1029; color:var(--text);
     border:1px solid var(--line); font:inherit; cursor:pointer; text-align:left; }
@@ -54,11 +56,12 @@ const SHELL = String.raw`<!doctype html>
     <button id="b-fold" type="button" aria-expanded="true">BOSS VIEWER <span>HIDE</span></button>
     <div id="panel-body">
     <h2>REALITY BREACH</h2>
-    <button id="b-spawn" type="button">Spawn the breach</button>
-    <button id="b-p2" type="button">Skip to phase II</button>
-    <button id="b-p3" type="button">Skip to phase III</button>
-    <button id="b-seal" type="button">Skip to the seal</button>
-    <button id="b-cancel" type="button">Cancel (quit)</button>
+    <div class="row"><button id="b-spawn" type="button">Spawn</button><button id="b-p2" type="button">Phase II</button>
+      <button id="b-p3" type="button">Phase III</button><button id="b-seal" type="button">Seal</button></div>
+    <h2>MEMORY LEAK</h2>
+    <div class="row"><button id="m-spawn" type="button">Spawn</button><button id="m-p2" type="button">Phase II</button>
+      <button id="m-p3" type="button">Phase III</button><button id="m-recall" type="button">Recall</button></div>
+    <button id="b-cancel" type="button">Cancel the fight (quit)</button>
     <label><input type="checkbox" id="c-sound" checked> Sound</label>
     <label><input type="checkbox" id="c-calm"> Calm mode</label>
     <label><input type="checkbox" id="c-fw"> Auto-Breach Firewall (2/s)</label>
@@ -70,7 +73,7 @@ const SHELL = String.raw`<!doctype html>
 <!-- stand-ins for the game.js script-scope bindings the boss uses -->
 <script>
   let isRunning = true;
-  const state = { energy: 5e9, eps: 2.5e7, _realEPS: 2.5e7, fragments: 0, instability: 20, multiplier: 1, _breachHoard: 0 };
+  const state = { prestige: { count: 3 }, energy: 5e9, eps: 2.5e7, _realEPS: 2.5e7, fragments: 0, instability: 20, multiplier: 1, _breachHoard: 0 };
   const format = n => {
     n = +n || 0;
     const u = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi'];
@@ -104,12 +107,16 @@ __BOSSES_JS__
   const fold = f => { $('panel').classList.toggle('folded', f); $('b-fold').setAttribute('aria-expanded', String(!f)); $('b-fold').querySelector('span').textContent = f ? 'SHOW' : 'HIDE'; };
   $('b-fold').onclick = () => fold(!$('panel').classList.contains('folded'));
   /* the panel folds itself away when a fight starts or skips ahead, so it never sits where the boss goes */
-  ['b-spawn', 'b-p2', 'b-p3', 'b-seal'].forEach(id => $(id).addEventListener('click', () => fold(true)));
+  ['b-spawn', 'b-p2', 'b-p3', 'b-seal', 'm-spawn', 'm-p2', 'm-p3', 'm-recall'].forEach(id => $(id).addEventListener('click', () => fold(true)));
   $('b-spawn').onclick = () => { if (!AnomalyBoss.spawn()) _toast('Cannot spawn now (already up?)'); };
   $('b-p2').onclick = () => AnomalyBoss._qaPhase(1);
   $('b-p3').onclick = () => AnomalyBoss._qaPhase(2);
   $('b-seal').onclick = () => AnomalyBoss._qaSeal();
-  $('b-cancel').onclick = () => AnomalyBoss.cancel();
+  $('m-spawn').onclick = () => { if (!MemoryLeakBoss._qaTrigger()) _toast('Cannot spawn now (a fight is already up?)'); };
+  $('m-p2').onclick = () => MemoryLeakBoss._qaPhase(1);
+  $('m-p3').onclick = () => MemoryLeakBoss._qaPhase(2);
+  $('m-recall').onclick = () => MemoryLeakBoss._qaRecall();
+  $('b-cancel').onclick = () => { AnomalyBoss.cancel(); MemoryLeakBoss.cancel(); };
   $('c-sound').onchange = e => { Settings._prefs.sound = e.target.checked; if (!e.target.checked && window.BossAudio) BossAudio.stop(); };
   $('c-calm').onchange = e => document.body.classList.toggle('accessibility-mode', e.target.checked);
   $('c-protocol').onchange = e => { _protocol = e.target.checked; };
@@ -123,9 +130,15 @@ __BOSSES_JS__
       if (w >= 1) { AnomalyBoss._autoHitAccum -= w; AnomalyBoss.hit(w, 'firewall'); }
     }
     $('energy-v').textContent = format(state.energy);
-    const q = AnomalyBoss._qa();
-    $('stats').textContent = 'mode   ' + q.mode + '\nphase  ' + q.phase + '\nhp     ' + q.hits + ' / ' + q.max + '\nshell  ' + q.shell
-      + '\nleft   ' + q.left.toFixed(1) + '\nhoard  ' + format(q.hoard) + '\nfrags  ' + state.fragments + '\ninstab ' + state.instability;
+    const m = MemoryLeakBoss._qa();
+    if (m.active) {
+      $('stats').textContent = 'mode   ' + m.mode + '\nphase  ' + m.phase + '\nhp     ' + m.hp + ' / ' + m.max + '\nheap   ' + m.heap.toFixed(0) + '%'
+        + '\nblocks ' + m.blocks.length + '\ngc     ' + m.gc + ' / ' + m.GC_NEED + '\nfrags  ' + state.fragments + '\ninstab ' + state.instability;
+    } else {
+      const q = AnomalyBoss._qa();
+      $('stats').textContent = 'mode   ' + q.mode + '\nphase  ' + q.phase + '\nhp     ' + q.hits + ' / ' + q.max + '\nshell  ' + q.shell
+        + '\nleft   ' + q.left.toFixed(1) + '\nhoard  ' + format(q.hoard) + '\nfrags  ' + state.fragments + '\ninstab ' + state.instability;
+    }
     requestAnimationFrame(loop);
   })(last);
 </script>

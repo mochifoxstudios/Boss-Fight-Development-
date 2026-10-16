@@ -3,8 +3,8 @@
   "private": true,
   "description": "Boss battles for Just a Clicker Game",
   "scripts": {
-    "test": "node tests/reality-breach.test.js",
-    "test:shots": "SHOTS=1 node tests/reality-breach.test.js"
+    "test": "node tests/reality-breach.test.js && node tests/memory-leak.test.js",
+    "test:shots": "SHOTS=1 node tests/reality-breach.test.js && SHOTS=1 node tests/memory-leak.test.js"
   },
   "devDependencies": {
     "playwright": "^1.56.1"
