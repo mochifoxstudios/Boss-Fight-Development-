@@ -72,8 +72,8 @@ Sounds: the boss plays its own (`BossAudio`). Only where Web Audio is unavailabl
 
 A cracked RAM stick hangs under the boss bar and drips allocated memory blocks onto the screen. Every block left standing fills your **heap** faster, and the heap also fills on its own. At 100% the leak takes the simulation. Tap a block to free it: the leak loses 1 integrity and the heap drops a little.
 
-- **The garbage collector.** Every block you free by hand charges it. At 24 it lights up: press it (or G) to free every block on screen at once and drop the heap 20%. It replaces the old typed command, which doesn't work on touch. Typing `EXECUTE GARBAGE_COLLECTION` still works as a desktop shortcut through `tryCommand`.
-- **Phase I: allocation.** Plain 16 KB and 32 KB blocks, about three a second, with a burst of three every sixth drip. It teaches the heap.
+- **The garbage collector.** Every block you free by hand charges it. At 16 it lights up: press it (or G) to free every block on screen at once and drop the heap 20%. It replaces the old typed command, which doesn't work on touch. Typing `EXECUTE GARBAGE_COLLECTION` still works as a desktop shortcut through `tryCommand`.
+- **Phase I: allocation.** Plain 16 KB and 32 KB blocks, a little under two a second, with a burst of two every eighth drip. It teaches the heap.
 - **Phase II: pointers.** Some blocks arrive as a numbered chain of three, joined by dashed lines. Free them 1, 2, 3. Out of order is a **segfault**: nothing is freed and the heap jumps 5%. A whole chain in order deals 3 bonus damage and drops the heap 6%.
 - **Phase III: fragmentation.** The drip quickens, and big 64 KB blocks split into two 16 KB blocks when freed.
 - **Recall.** At 0 integrity it doesn't die. Its blocks are pulled back into the stick, and a 3 x 3 grid of memory cells lights four of them in turn, each with its own tone. Tap them back in the same order (or type their numbers 1 to 9) within 7 s. A first wrong cell plays the sequence again; a second, and it reallocates with 15% integrity and phase III resumes.
@@ -82,14 +82,13 @@ A cracked RAM stick hangs under the boss bar and drips allocated memory blocks o
 - **When it comes.** Unchanged: prestige 2 or more, instability over 75%, 45 minutes since the last one, then a 1% roll every 30 s.
 - **Soundtrack.** Its own songs in E minor: chiptune pulses for allocation (118 BPM), a driving arpeggio for pointers (128), a distorted bass for fragmentation (142), and a quiet pulse for the recall, where each cell has its own note. Sounds for every drip, free, segfault, finished chain and collection, and a double beep while the heap is over 80%.
 
-**Balance** (`node tests/balance-leak.js 5`: scripted players at 4x speed; a new block takes them a moment to notice, and they make chain and recall mistakes at their own rates):
+**Balance** (`node tests/balance-leak.js 5`: scripted players at 4x speed; a new block takes them a moment to notice, and they make chain and recall mistakes at their own rates). The `human` player is the one to trust: earlier tuning against faster bots left the fight far too hard for a person on a phone.
 
 | Player | Wins | Peak heap | Phase I / II / III |
 |---|---|---|---|
-| Mouse, skilled (6.5 clicks/s) | 5 of 5 | about 26% | 14 / 8 / 8 s |
-| Mouse, sloppy (more segfaults, slow to use the collector) | 5 of 5 | about 28% | 14 / 9 / 8 s |
-| Touch, good (4.5 taps/s) | 5 of 5 | about 32% | 15 / 8 / 8 s |
-| Touch, casual (3.7 taps/s, slow to notice, slow to collect, more mistakes) | 5 of 5 | about 71% | 15 / 9 / 11 s |
+| Mouse, skilled (6.5 clicks/s) | 5 of 5 | about 13% | 23 / 9 / 9 s |
+| Touch, casual (3.7 taps/s) | 5 of 5 | about 17% | 24 / 10 / 11 s |
+| Touch, a person on a phone (2.5 taps/s, a second to notice new blocks, slow to use the collector, a chain mistake in four) | 5 of 5 | about 23% | 24 / 13 / 11 s |
 
 ### Integration into the game
 

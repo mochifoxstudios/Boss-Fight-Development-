@@ -12,6 +12,8 @@ const PLAYERS = {
     average: { every: 160, notice: 0.45, order: 0.15, gcDelay: 1.5, recallMiss: 0.3 },
     touch:   { every: 220, notice: 0.4, order: 0.06, gcDelay: 0.8, recallMiss: 0.2, touch: true },
     casual:  { every: 270, notice: 0.7, order: 0.2, gcDelay: 2.5, recallMiss: 0.4, touch: true },
+    /* a person on a phone: taps travel across the screen, new blocks take a second to register, the collector is an afterthought */
+    human:   { every: 400, notice: 1.0, order: 0.25, gcDelay: 4, recallMiss: 0.45, touch: true },
 };
 
 function rig(SCALE) {

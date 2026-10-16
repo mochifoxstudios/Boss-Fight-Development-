@@ -78,7 +78,7 @@ async function visibleNonAscii(page) {
     await sleep(400);
     await shot(page, 'ml-02-phase1');
     let q = await qa(page);
-    check('HP is 130-149', q.max >= 130 && q.max <= 149, q.max);
+    check('HP is 100-115', q.max >= 100 && q.max <= 115, q.max);
     check('the heap fills while blocks stand', (await page.evaluate(async () => { const a = MemoryLeakBoss._qa().heap; await new Promise(r => setTimeout(r, 600)); return MemoryLeakBoss._qa().heap - a; })) > 0);
 
     /* ── freeing ── */

@@ -1502,15 +1502,15 @@ const MemoryLeakBoss = (() => {
     const COL = '#ff7a1a', COL_II = '#ffc21a', COL_III = '#ff3b3b', COL_RECALL = '#5cf2ff', COL_WIN = '#44ff88';
     const CMD = 'EXECUTE GARBAGE_COLLECTION';
     const GAP_MS = 45 * 60000, ROLL = 0.01, CHECK_MS = 30000;                 // when it may come (unchanged)
-    const HP_MIN = 130, HP_SPREAD = 20;
+    const HP_MIN = 100, HP_SPREAD = 16;
     const LINE_II = 0.65, LINE_III = 0.35;
     const MAX_BLOCKS = 14;
-    const SPAWN_S = [0.32, 0.29, 0.26];                   // a new allocation every ..., by phase
-    const BURST_EVERY = 6, BURST = 3;                      // every sixth drip is a burst of three
-    const HEAP_START = 8, HEAP_BASE = [2.2, 2.6, 3.0], HEAP_PER_BLOCK = 0.45, HEAP_FREE = 0.4, HEAP_WARN = 80;
+    const SPAWN_S = [0.65, 0.58, 0.5];                     // a new allocation every ..., by phase
+    const BURST_EVERY = 8, BURST = 2;                      // every eighth drip is a burst of two
+    const HEAP_START = 8, HEAP_BASE = [1.3, 1.6, 1.9], HEAP_PER_BLOCK = 0.35, HEAP_FREE = 0.8, HEAP_WARN = 80;
     const CHAIN_EVERY = 3, CHAIN_LEN = 3, CHAIN_BONUS = 3, CHAIN_HEAP = 6, SEGFAULT_HEAP = 5;
     const BIG_EVERY = 3;                                   // phase III: one allocation in three is a 64 KB block that splits
-    const GC_NEED = 24, GC_BONUS = 0, GC_HEAP = 20;        // frees to charge it; extra damage per block it frees; extra heap it clears
+    const GC_NEED = 16, GC_BONUS = 0, GC_HEAP = 20;        // frees to charge it; extra damage per block it frees; extra heap it clears
     const STAGGER_S = 1.1;
     const RECALL_LEN = 4, RECALL_STEP_S = 0.6, RECALL_WINDOW_S = 7, RECALL_FAIL_HP = 0.15;
     const BOUNTY = [1e6, 0.20, 480], CLEAN_MULT = 1.5;
