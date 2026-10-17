@@ -2,6 +2,8 @@
 
 Boss battles for **Just a Clicker Game**. `reference/` holds copies of the shipped game files, for reference only.
 
+**Integrating into the game: see [INTEGRATION.md](INTEGRATION.md)** (and `node tools/integrate.js <game folder>`).
+
 ## The bosses: `src/bosses.js`
 
 All three bosses live in one file, `src/bosses.js`, and that file is the whole deliverable. It creates every element and style it needs at runtime. It doesn't edit `index.html` and doesn't depend on any element or class in it, so it can't collide with ongoing work on that file.
@@ -18,6 +20,7 @@ Development tools (none of these ship):
 
 | File | What it is |
 |---|---|
+| `tools/integrate.js` | Removes the three old bosses from the game by their text, copies `bosses.js` in, and (with `--add-script`) adds its one script tag. Dry run by default. |
 | `tools/viewer.js` | Builds a self-contained preview page: a stand-in for the parts of the game a boss touches, `bosses.js` inlined, and a panel to spawn the boss and skip to any phase. |
 | `tests/reality-breach.test.js` | Plays every Reality Breach mechanic in Chromium (57 checks, including that the music plays, switches per phase and stops), using the viewer page. |
 | `tests/balance.js` | Scripted players fight the breach to the end and report wins and time left. |
